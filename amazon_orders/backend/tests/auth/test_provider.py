@@ -479,3 +479,36 @@ def test_factory_binds_container_port(tmp_path):
     opts = SimpleNamespace(domain="amazon.it", login_port=9000, login_host="")
     p = create_auth_provider(SimpleNamespace(data_dir=tmp_path, options=opts))
     assert p.bind_port == CONTAINER_LOGIN_PORT == 8098 and p.login_port == 9000
+
+
+def test_public_browser_host_falls_back_to_supervisor_lan_address(make_provider, monkeypatch):
+    import amazon_orders_ha.auth.provider as prov
+
+    monkeypatch.setattr(prov, "resolves_to_lan", lambda host: False)
+    p = make_provider(login_port=8098, lan_address=lambda: "192.168.1.20")
+    assert p._public_base("ha.example.org:8123") == "http://192.168.1.20:8098/"
+    p = make_provider(login_port=8098, lan_address=lambda: None)
+    with pytest.raises(AuthRequired, match="login_host"):
+        p._public_base("ha.example.org:8123")
+
+
+def test_local_dns_name_is_kept(make_provider, monkeypatch):
+    import amazon_orders_ha.auth.provider as prov
+
+    monkeypatch.setattr(prov, "resolves_to_lan", lambda host: host == "ha.example.net")
+    p = make_provider(login_port=8098, lan_address=lambda: "192.168.1.20")
+    assert p._public_base("ha.example.net:8123") == "http://ha.example.net:8098/"
+
+
+def test_supervisor_lan_address_prefers_primary_interface(monkeypatch):
+    from amazon_orders_ha.auth.provider import supervisor_lan_address
+
+    payload = {"data": {"interfaces": [
+        {"interface": "wlan0", "primary": False, "ipv4": {"address": ["192.168.50.9/24"]}},
+        {"interface": "eth0", "primary": True, "ipv4": {"address": ["192.168.1.20/24"]}},
+    ]}}
+    monkeypatch.setenv("SUPERVISOR_TOKEN", "test-token")
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=payload))
+    assert supervisor_lan_address(transport) == "192.168.1.20"
+    monkeypatch.delenv("SUPERVISOR_TOKEN")
+    assert supervisor_lan_address(transport) is None

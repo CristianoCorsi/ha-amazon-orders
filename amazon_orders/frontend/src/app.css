@@ -2792,3 +2792,11 @@ progress::-moz-progress-bar {
     scroll-behavior: auto !important;
   }
 }
+
+.error-alert .error-detail {
+  display: block;
+  margin-top: 4px;
+  opacity: 0.85;
+  font-size: 0.875em;
+  overflow-wrap: anywhere;
+}

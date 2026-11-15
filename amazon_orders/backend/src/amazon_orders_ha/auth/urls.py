@@ -88,6 +88,18 @@ def is_lan_host(host: str) -> bool:
     return ip.is_private or ip.is_loopback or ip.is_link_local
 
 
+def resolves_to_lan(host: str) -> bool:
+    """True when a DNS name resolves only to LAN addresses (e.g. a local DNS entry like ha.example.net)."""
+    import socket
+
+    try:
+        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+    except (OSError, UnicodeError):
+        return False
+    ips = {info[4][0] for info in infos}
+    return bool(ips) and all(is_lan_host(ip) for ip in ips)
+
+
 def format_netloc(host: str, port: int | None) -> str:
     bracket = f"[{host}]" if ":" in host else host
     return f"{bracket}:{port}" if port else bracket

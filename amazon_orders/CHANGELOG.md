@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+- Sign-in link works when Home Assistant is opened through a public name (DuckDNS, Nabu Casa, reverse proxy): the add-on now uses Home Assistant's LAN address for the login page, or a local DNS name that resolves to the LAN.
+- The sign-in panel shows the reason when sign-in cannot start, and the log records it.
+
 ## 0.1.0
 
 - First release (early development).

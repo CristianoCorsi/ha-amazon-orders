@@ -86,7 +86,7 @@
         >{tr(
           'Could not update the Amazon connection. Please try again.',
           'Impossibile aggiornare la connessione ad Amazon. Riprova.'
-        )}</span
+        )}<small class="error-detail">{$auth.error}</small></span
       >
     </div>{/if}
   <div class="button-row">

@@ -157,6 +157,8 @@ def create_app(rt: Runtime, background: bool = False) -> FastAPI:
         allowed = {h for h in (request.headers.get("x-forwarded-host", "").split(",")[0].strip(),
                                request.headers.get("host", "")) if h}
         if origin == "null" or urlsplit(origin).netloc not in allowed:
+            log.warning("Refused cross-origin POST (origin host %s, allowed %s)",
+                        urlsplit(origin).netloc, sorted(allowed))
             raise ApiError(403, "forbidden", "cross-origin request refused")
 
     @app.get("/api/auth/status")
@@ -174,7 +176,9 @@ def create_app(rt: Runtime, background: bool = False) -> FastAPI:
         try:
             url = rt.auth.start(host=_browser_host(request))
         except AuthRequired as e:
+            log.warning("Sign-in could not start: %s", e)
             raise ApiError(501, "auth_unavailable", str(e) or "sign-in flow not available") from e
+        log.info("Sign-in started; login page open on the login port")
         return {"url": url}
 
     @app.post("/api/auth/logout")

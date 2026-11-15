@@ -18,7 +18,7 @@ from .base import AUTH_COOKIE, AuthRequired, AuthStatus, AuthTemporarilyUnavaila
 from .device import TokenRejected, TokenTransient, deregister_device, exchange_refresh_token
 from .proxy import LoginProxy
 from .server import LoginServer
-from .urls import format_netloc, is_lan_host, split_host
+from .urls import format_netloc, is_lan_host, resolves_to_lan, split_host
 
 if TYPE_CHECKING:
     from amazonorders.session import AmazonSession
@@ -46,6 +46,7 @@ class DeviceAuthProvider:
         login_port: int = 8098,
         bind_port: int | None = None,
         login_host: str = "",
+        lan_address: Any = None,
         lifetime: float = 900,
         bind_host: str = "0.0.0.0",
         register_device: bool = True,
@@ -64,6 +65,9 @@ class DeviceAuthProvider:
         self.login_port = int(login_port)
         self.bind_port = int(bind_port) if bind_port is not None else self.login_port
         self.login_host = (login_host or "").strip()
+        # Callable returning the Home Assistant host's LAN IP (from the Supervisor), used when the
+        # browser reached HA through a public name (DuckDNS, Nabu Casa, reverse proxy).
+        self.lan_address = lan_address
         if self.login_host:
             split_host(self.login_host)  # fail early on a malformed override
         self.lifetime = lifetime
@@ -245,11 +249,20 @@ class DeviceAuthProvider:
             name, _ = split_host(host)
         except ValueError:
             raise AuthRequired("Cannot tell which host to use for the login link; set the login_host option") from None
-        if not is_lan_host(name):
-            raise AuthRequired(
-                "Sign-in is served over plain HTTP and only from the local network. Open Home Assistant from the "
-                "LAN (or through your VPN), or set the login_host option."
-            )
+        if not (is_lan_host(name) or resolves_to_lan(name)):
+            lan = None
+            if self.lan_address is not None:
+                try:
+                    lan = self.lan_address()
+                except Exception:
+                    log.warning("Could not read the LAN address from the Supervisor", exc_info=True)
+            if not lan:
+                raise AuthRequired(
+                    "Sign-in is served over plain HTTP and only from the local network, and the add-on could not "
+                    "find Home Assistant's LAN address. Set the login_host option (e.g. 192.168.1.10)."
+                )
+            log.info("Browser host is not on the LAN; using the Home Assistant LAN address for the sign-in link")
+            name = lan
         return f"http://{format_netloc(name, self.login_port)}/"
 
     def start(self, host: str | None = None) -> str:
@@ -347,4 +360,23 @@ def create_auth_provider(settings: Any) -> DeviceAuthProvider:
         login_port=opts.login_port,
         bind_port=CONTAINER_LOGIN_PORT,
         login_host=opts.login_host,
+        lan_address=supervisor_lan_address,
     )
+
+
+def supervisor_lan_address(transport: Any = None) -> str | None:
+    """IPv4 of the primary network interface, from the Supervisor (needs ``hassio_api: true``)."""
+    token = os.environ.get("SUPERVISOR_TOKEN")
+    if not token:
+        return None
+    with httpx.Client(transport=transport, timeout=5, trust_env=False) as client:
+        r = client.get("http://supervisor/network/info", headers={"Authorization": f"Bearer {token}"})
+        r.raise_for_status()
+        interfaces = (r.json().get("data") or {}).get("interfaces") or []
+    interfaces.sort(key=lambda i: not i.get("primary"))
+    for iface in interfaces:
+        for cidr in ((iface.get("ipv4") or {}).get("address") or []):
+            ip = str(cidr).split("/")[0]
+            if ip and is_lan_host(ip):
+                return ip
+    return None
