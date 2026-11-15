@@ -17,6 +17,27 @@ from .base import CookieStore
 from .cookies import cookiejar_records
 from .urls import checked_https, split_host, upstream_url
 
+
+def describe_error(exc: BaseException) -> str:
+    """Exception summary safe for logs: no query strings (they carry one-time codes), no bodies, no cookies."""
+    import re
+
+    import httpx
+
+    if isinstance(exc, httpx.HTTPStatusError):
+        u = exc.request.url
+        return f"{type(exc).__name__}: HTTP {exc.response.status_code} from {u.host}{u.path}"
+    if isinstance(exc, httpx.HTTPError):
+        try:
+            u = exc.request.url
+            return f"{type(exc).__name__} contacting {u.host}{u.path}"
+        except RuntimeError:
+            return type(exc).__name__
+    text = re.sub(r"\?\S*", "?…", str(exc))[:200]
+    return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
+
+log = logging.getLogger(__name__)
+
 PATH_PREFIX = "auth/proxy/"
 
 
@@ -57,6 +78,7 @@ class LoginProxy:
         self._lock = asyncio.Lock()
         self._active = True
         self._finishing = False
+        self._phase = "start"
 
     @property
     def active(self) -> bool:
@@ -156,9 +178,11 @@ class LoginProxy:
         self._finishing = True
         ok = True
         if self.on_captured:
+            self._phase = "activating session"
             try:
                 ok = await self.on_captured()
-            except Exception:
+            except Exception as exc:
+                log.warning("Signed in, but the session could not be activated: %s", describe_error(exc))
                 ok = False
         self.captured.set()
         if ok:
@@ -177,9 +201,11 @@ class LoginProxy:
         async with httpx.AsyncClient(
             transport=self.api_transport, trust_env=False, timeout=30, follow_redirects=False
         ) as client:
+            self._phase = "device registration"
             response = await client.post(API_BASE + "/auth/register", json=self.device.registration_body(code))
             response.raise_for_status()
             token = response.json()["response"]["success"]["tokens"]["bearer"]["refresh_token"]
+        self._phase = "saving device token"
         # Save immediately: if the later cookie exchange fails, the registered device must stay identifiable.
         if self.on_device:
             self.on_device(token, self.device.serial, self.domain)
@@ -224,6 +250,7 @@ class LoginProxy:
                 return web.Response(status=410, text="Login completed")
             if self.proxy is None:
                 await self._make_proxy()
+            self._phase = "relay " + request.method + " " + urlsplit(str(request.rel_url)).path.rsplit("/", 1)[-1][:40]
             try:
                 response = await self.proxy.all_handler(request)
                 # Even the upstream AJAX header-preservation branch must not set
@@ -238,7 +265,9 @@ class LoginProxy:
                 response.headers["Cache-Control"] = "no-store"
                 response.headers["Referrer-Policy"] = "same-origin"
                 return response
-            except Exception:
+            except Exception as exc:
+                log.warning("Login relay failed (step: %s): %s", self._phase, describe_error(exc))
+                log.debug("Login relay failure details", exc_info=True)
                 return web.Response(
                     status=502,
                     text="Login relay failed. Do not retry repeatedly.",

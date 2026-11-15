@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Sign-in failures are now logged with the step that failed (relay, device registration, session activation), without codes, cookies or tokens.
+
 ## 0.1.2
 
 - Sign-in works over Tailscale: `100.64.0.0/10` addresses and `*.ts.net` MagicDNS names are used directly for the login link (tailnet traffic is encrypted end to end).

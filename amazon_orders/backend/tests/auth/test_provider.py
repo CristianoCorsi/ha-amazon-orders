@@ -533,3 +533,13 @@ def test_supervisor_lan_address_skips_tailscale_interface(monkeypatch):
     monkeypatch.setenv("SUPERVISOR_TOKEN", "test-token")
     transport = httpx.MockTransport(lambda request: httpx.Response(200, json=payload))
     assert supervisor_lan_address(transport) == "192.168.1.20"
+
+
+def test_describe_error_never_leaks_query_strings():
+    from amazon_orders_ha.auth.proxy import describe_error
+
+    req = httpx.Request("POST", "https://api.amazon.com/auth/register?code=SECRET")
+    exc = httpx.HTTPStatusError("boom", request=req, response=httpx.Response(400, request=req))
+    assert describe_error(exc) == "HTTPStatusError: HTTP 400 from api.amazon.com/auth/register"
+    msg = describe_error(ValueError("bad url https://www.amazon.com/ap/maplanding?openid.oa2.authorization_code=SECRET"))
+    assert "SECRET" not in msg and msg.startswith("ValueError")

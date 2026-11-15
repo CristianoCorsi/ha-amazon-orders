@@ -302,7 +302,8 @@ class DeviceAuthProvider:
                     self._renew()
                 self._drop_session()
                 self.get_session()
-            except (AuthRequired, AuthTemporarilyUnavailable):
+            except (AuthRequired, AuthTemporarilyUnavailable) as exc:
+                log.warning("Signed in, but the first session check failed: %s", exc)
                 return False
             with self._state:
                 self._login_completed = True
