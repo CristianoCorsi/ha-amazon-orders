@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4
+
+- Log Amazon's own error code and message when the device registration is refused.
+
 ## 0.1.3
 
 - Sign-in failures are now logged with the step that failed (relay, device registration, session activation), without codes, cookies or tokens.

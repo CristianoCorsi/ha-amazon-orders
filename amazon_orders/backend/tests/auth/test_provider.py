@@ -543,3 +543,12 @@ def test_describe_error_never_leaks_query_strings():
     assert describe_error(exc) == "HTTPStatusError: HTTP 400 from api.amazon.com/auth/register"
     msg = describe_error(ValueError("bad url https://www.amazon.com/ap/maplanding?openid.oa2.authorization_code=SECRET"))
     assert "SECRET" not in msg and msg.startswith("ValueError")
+
+
+def test_amazon_error_summary():
+    from amazon_orders_ha.auth.proxy import amazon_error_summary
+
+    error = {"code": "InvalidValue", "message": "bad client", "index": "0"}
+    r = httpx.Response(400, json={"response": {"error": error}})
+    assert amazon_error_summary(r) == "InvalidValue | bad client | 0"
+    assert amazon_error_summary(httpx.Response(400, text="<html>")).startswith("non-JSON")

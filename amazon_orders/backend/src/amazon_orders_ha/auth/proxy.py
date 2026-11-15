@@ -18,6 +18,19 @@ from .cookies import cookiejar_records
 from .urls import checked_https, split_host, upstream_url
 
 
+def amazon_error_summary(response: Any) -> str:
+    """Amazon's error code/message from an api.amazon.com answer (they carry no secrets), else the content type."""
+    try:
+        body = response.json()
+        err = (body.get("response") or {}).get("error") or body.get("error") or {}
+        if isinstance(err, dict) and err:
+            parts = [str(err.get(k))[:160] for k in ("code", "message", "index") if err.get(k) is not None]
+            return " | ".join(parts)
+        return "keys: " + ",".join(sorted(body))[:160]
+    except Exception:
+        return "non-JSON answer (" + str(response.headers.get("content-type", "?"))[:60] + ")"
+
+
 def describe_error(exc: BaseException) -> str:
     """Exception summary safe for logs: no query strings (they carry one-time codes), no bodies, no cookies."""
     import re
@@ -203,6 +216,9 @@ class LoginProxy:
         ) as client:
             self._phase = "device registration"
             response = await client.post(API_BASE + "/auth/register", json=self.device.registration_body(code))
+            if response.status_code != 200:
+                log.warning("Amazon refused the device registration: HTTP %s %s",
+                            response.status_code, amazon_error_summary(response))
             response.raise_for_status()
             token = response.json()["response"]["success"]["tokens"]["bearer"]["refresh_token"]
         self._phase = "saving device token"
