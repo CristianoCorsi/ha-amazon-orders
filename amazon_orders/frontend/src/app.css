@@ -2800,3 +2800,10 @@ progress::-moz-progress-bar {
   font-size: 0.875em;
   overflow-wrap: anywhere;
 }
+
+.error-alert a {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

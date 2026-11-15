@@ -18,6 +18,34 @@ from .cookies import cookiejar_records
 from .urls import checked_https, split_host, upstream_url
 
 
+class DuplicateDevice(Exception):
+    """Amazon refused the registration twice with DuplicateDeviceName: the user must remove old devices."""
+
+
+def amazon_error_code(response: Any) -> str | None:
+    try:
+        body = response.json()
+        err = (body.get("response") or {}).get("error") or body.get("error") or {}
+        return str(err.get("code")) if isinstance(err, dict) and err.get("code") else None
+    except Exception:
+        return None
+
+
+DUPLICATE_DEVICE_PAGE = """<!doctype html><meta charset="utf-8">
+<meta name="viewport" content="width=device-width"><title>Amazon Orders</title>
+<body style="font-family:system-ui,sans-serif;max-width:36rem;margin:3rem auto;padding:0 1rem">
+<h1>Remove the old device, then sign in again</h1>
+<p>Amazon says a device with the same name is already registered on your account, usually a previous
+installation of this add-on. Open <a href="https://www.amazon.it/hz/mycd/digital-console/alldevices"
+rel="noreferrer">Content and Devices &rarr; Devices</a>, remove the devices named
+<b>Home Assistant Amazon Orders&hellip;</b>, then press <b>Sign in</b> again in Home Assistant.</p>
+<hr><h1>Rimuovi il vecchio dispositivo e accedi di nuovo</h1>
+<p>Amazon segnala che sul tuo account &egrave; gi&agrave; registrato un dispositivo con lo stesso nome, di solito
+una precedente installazione di questo add-on. Apri <a href="https://www.amazon.it/hz/mycd/digital-console/alldevices"
+rel="noreferrer">Contenuti e dispositivi &rarr; Dispositivi</a>, rimuovi i dispositivi chiamati
+<b>Home Assistant Amazon Orders&hellip;</b>, poi premi di nuovo <b>Accedi</b> in Home Assistant.</p></body>"""
+
+
 def amazon_error_summary(response: Any) -> str:
     """Amazon's error code/message from an api.amazon.com answer (they carry no secrets), else the content type."""
     try:
@@ -67,6 +95,7 @@ class LoginProxy:
         on_device: Callable[[str, str, str], None] | None = None,
         on_cookies: Callable[[list[dict[str, Any]]], None] | None = None,
         on_captured: Callable[[], Awaitable[bool]] | None = None,
+        on_error: Callable[[str], None] | None = None,
     ) -> None:
         import asyncio
 
@@ -83,6 +112,7 @@ class LoginProxy:
         self.on_device = on_device
         self.on_cookies = on_cookies
         self.on_captured = on_captured
+        self.on_error = on_error
         self.proxy: Any = None
         self.device: Any = None
         self.captured = asyncio.Event()
@@ -215,10 +245,18 @@ class LoginProxy:
             transport=self.api_transport, trust_env=False, timeout=30, follow_redirects=False
         ) as client:
             self._phase = "device registration"
-            response = await client.post(API_BASE + "/auth/register", json=self.device.registration_body(code))
-            if response.status_code != 200:
+            for attempt in range(2):
+                response = await client.post(API_BASE + "/auth/register", json=self.device.registration_body(code))
+                if response.status_code == 200:
+                    break
                 log.warning("Amazon refused the device registration: HTTP %s %s",
                             response.status_code, amazon_error_summary(response))
+                if amazon_error_code(response) != "DuplicateDeviceName":
+                    break
+                if attempt == 0:
+                    self.device.rename()  # one retry with a fresh name, same authorization code
+                    continue
+                raise DuplicateDevice()
             response.raise_for_status()
             token = response.json()["response"]["success"]["tokens"]["bearer"]["refresh_token"]
         self._phase = "saving device token"
@@ -281,6 +319,15 @@ class LoginProxy:
                 response.headers["Cache-Control"] = "no-store"
                 response.headers["Referrer-Policy"] = "same-origin"
                 return response
+            except DuplicateDevice:
+                log.warning("Sign-in stopped: Amazon reports a duplicate device name; the user must remove old devices")
+                if self.on_error:
+                    self.on_error("duplicate_device")
+                self._active = False
+                return web.Response(
+                    status=409, text=DUPLICATE_DEVICE_PAGE, content_type="text/html",
+                    headers={"Cache-Control": "no-store"},
+                )
             except Exception as exc:
                 log.warning("Login relay failed (step: %s): %s", self._phase, describe_error(exc))
                 log.debug("Login relay failure details", exc_info=True)

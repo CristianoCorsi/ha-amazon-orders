@@ -81,6 +81,20 @@
       )}
     </p>
   {/if}
+  {#if $auth.status?.last_error === 'duplicate_device' && authState !== 'in_progress'}
+    <div class="alert error-alert" role="alert">
+      <Icon name="error" size={20} /><span
+        >{tr(
+          'Amazon says a device with the same name is already registered, usually a previous installation of this add-on. Remove the devices named “Home Assistant Amazon Orders…” in ',
+          'Amazon segnala che è già registrato un dispositivo con lo stesso nome, di solito una precedente installazione di questo add-on. Rimuovi i dispositivi chiamati “Home Assistant Amazon Orders…” in '
+        )}<a
+          href="https://www.amazon.it/hz/mycd/digital-console/alldevices"
+          target="_blank"
+          rel="noreferrer">{tr('Content and Devices → Devices', 'Contenuti e dispositivi → Dispositivi')}</a
+        >{tr(', then sign in again.', ', poi accedi di nuovo.')}</span
+      >
+    </div>
+  {/if}
   {#if $auth.error}<div class="alert error-alert" role="alert">
       <Icon name="error" size={20} /><span
         >{tr(

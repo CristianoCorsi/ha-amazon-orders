@@ -36,6 +36,7 @@ class FakeAmazon:
         self.calls: list[httpx.Request] = []
         self.token: Callable[[httpx.Request], httpx.Response] = lambda r: httpx.Response(200, json=cookie_payload())
         self.deregister_status = 200
+        self.register_dupes = 0  # how many /auth/register calls answer DuplicateDeviceName first
 
     @property
     def transport(self) -> httpx.MockTransport:
@@ -52,6 +53,10 @@ class FakeAmazon:
         if path == "/auth/deregister":
             return httpx.Response(self.deregister_status, json={})
         if path == "/auth/register":
+            if self.register_dupes > 0:
+                self.register_dupes -= 1
+                return httpx.Response(400, json={"response": {"error": {
+                    "code": "DuplicateDeviceName", "message": "The device name is duplicate to an existing one."}}})
             return httpx.Response(
                 200, json={"response": {"success": {"tokens": {"bearer": {"refresh_token": "synthetic-refresh"}}}}}
             )
@@ -560,3 +565,46 @@ def test_each_registration_uses_a_unique_device_name():
     a, b = DeviceFlow(), DeviceFlow()
     assert a.device_name != b.device_name and a.device_name.startswith(APP_NAME + " ")
     assert a.registration_body("code")["registration_data"]["device_name"] == a.device_name
+
+
+def _capture_device_login(p):
+    import asyncio
+
+    from amazon_orders_ha.auth.device import DeviceFlow
+
+    server = p._server
+    server.proxy.device = DeviceFlow()
+
+    class Resp:
+        url = "https://www.amazon.com/ap/maplanding?openid.oa2.authorization_code=SYNTHETIC-CODE"
+
+    return asyncio.run_coroutine_threadsafe(server.proxy._capture(Resp(), {}, {}), server._loop).result(15)
+
+
+def test_duplicate_device_name_is_retried_once_with_a_new_name(make_provider, amazon):
+    amazon.register_dupes = 1
+    p = make_provider(login_port=free_port(), grace=0.2)
+    p.start(host="localhost")
+    assert "Signed in" in _capture_device_login(p)
+    names = [json.loads(c.content)["registration_data"]["device_name"]
+             for c in amazon.calls if c.url.path == "/auth/register"]
+    assert len(names) == 2 and names[0] != names[1]
+    assert wait_for(lambda: p.status()["state"] == "ok")
+
+
+def test_persistent_duplicate_device_asks_user_to_remove_old_devices(make_provider, amazon):
+    from amazon_orders_ha.auth.proxy import DuplicateDevice
+
+    amazon.register_dupes = 5
+    port = free_port()
+    p = make_provider(login_port=port, grace=0.2)
+    p.start(host="localhost")
+    with pytest.raises(DuplicateDevice):
+        _capture_device_login(p)
+    assert not p.device_path.exists()
+    p._on_login_error("duplicate_device")
+    st = p.status()
+    assert st["state"] == "auth_required" and st["last_error"] == "duplicate_device"
+    assert wait_for(lambda: not port_open(port))
+    p.start(host="localhost")
+    assert "last_error" not in p.status()

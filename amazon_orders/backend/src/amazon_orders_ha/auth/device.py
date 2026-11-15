@@ -65,6 +65,10 @@ class DeviceFlow:
             }
         )
 
+    def rename(self) -> None:
+        """Pick another unique device name (after a DuplicateDeviceName answer)."""
+        self.device_name = f"{APP_NAME} {secrets.token_hex(2).upper()}"
+
     def app_cookies(self) -> dict[str, str]:
         return {
             "amzn-app-id": "MAPiOSLib/6.0/ToHideRetailLink",

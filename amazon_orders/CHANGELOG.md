@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6
+
+- If Amazon reports `DuplicateDeviceName`, sign-in retries once with a new device name; if Amazon still refuses, the login page and the panel ask you to remove old `Home Assistant Amazon Orders…` devices, with a direct link to Amazon's device list.
+
 ## 0.1.5
 
 - Fix sign-in failing with `DuplicateDeviceName`: each registration now uses a unique device name, shown in Amazon's device list as `Home Assistant Amazon Orders XXXX`.

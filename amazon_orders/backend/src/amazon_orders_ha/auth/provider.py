@@ -80,6 +80,7 @@ class DeviceAuthProvider:
         self.transient_backoff = transient_backoff
         self.grace = grace
         self.last_logout_remote: bool | None = None
+        self._last_error: str | None = None
         self._io = threading.RLock()  # session cache + renewals (may hold Amazon requests)
         self._state = threading.Lock()  # tiny critical sections, never held across I/O
         self._session: AmazonSession | None = None
@@ -149,9 +150,12 @@ class DeviceAuthProvider:
             state = "ok" if usable else "auth_required"
         hint = datetime.fromtimestamp(exp, UTC).date().isoformat() if exp else None
         result: AuthStatus = {"state": state, "method": method, "expires_hint": hint}
+        if state != "ok" and self._last_error:
+            result["last_error"] = self._last_error
         server, url = self._server, self._url
         # After capture the port stays open for a short grace period; the login is done.
-        if server is not None and server.running and url and not server.proxy.captured.is_set():
+        if (server is not None and server.running and url and not server.proxy.captured.is_set()
+                and not self._last_error):
             result["state"] = "in_progress"
             result["login_url"] = url
         return result
@@ -272,6 +276,7 @@ class DeviceAuthProvider:
             if server is not None and server.running and url:
                 return url
             base = self._public_base(host)
+            self._last_error = None
             proxy = LoginProxy(
                 base,
                 self.store,
@@ -282,6 +287,7 @@ class DeviceAuthProvider:
                 on_device=self._save_device,
                 on_cookies=self.store.import_cookies,
                 on_captured=self._on_captured,
+                on_error=self._on_login_error,
             )
             server = LoginServer(
                 proxy, self.bind_port, self.bind_host, on_finished=self._on_finished, grace=self.grace
@@ -289,6 +295,13 @@ class DeviceAuthProvider:
             server.start()  # AuthRequired when the port cannot be bound
             self._server, self._url = server, proxy.url
             return proxy.url
+
+    def _on_login_error(self, code: str) -> None:
+        """The login page reported a terminal error; remember it for the UI and close the port shortly."""
+        self._last_error = code
+        server = self._server
+        if server is not None:
+            threading.Timer(2.0, server.stop, kwargs={"join": False}).start()
 
     async def _on_captured(self) -> bool:
         return await asyncio.to_thread(self._finish_login)

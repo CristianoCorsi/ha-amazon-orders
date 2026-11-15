@@ -25,6 +25,7 @@ class AuthStatus(TypedDict):
     method: str | None  # 'device' | 'cookies' | ... | None when nothing is stored
     expires_hint: str | None
     login_url: NotRequired[str]  # only while state == 'in_progress'
+    last_error: NotRequired[str]  # e.g. 'duplicate_device' after a failed sign-in
 
 
 @runtime_checkable

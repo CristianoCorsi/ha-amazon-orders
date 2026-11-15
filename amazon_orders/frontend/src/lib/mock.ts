@@ -152,7 +152,8 @@ const orders: Order[] = Array.from({ length: 96 }, (_, i) => {
 const scenario =
   typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('mock_auth');
 export const mockControls = {
-  authRequired: scenario === 'auth_required',
+  authRequired: scenario === 'auth_required' || scenario === 'duplicate_device',
+  duplicateDevice: scenario === 'duplicate_device',
   authInProgress: scenario === 'in_progress',
   failRequests: false,
   empty: false
@@ -177,6 +178,7 @@ function mockAuthStatus(): AuthStatus {
         : 'ok',
     method: mockControls.authRequired && !mockControls.authInProgress ? null : 'device',
     expires_hint: null,
+    ...(mockControls.duplicateDevice && !mockControls.authInProgress ? { last_error: 'duplicate_device' } : {}),
     ...(mockControls.authInProgress
       ? { login_url: new URL('auth-demo.html', location.href).href }
       : {})

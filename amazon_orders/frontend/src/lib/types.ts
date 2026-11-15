@@ -48,6 +48,7 @@ export interface AuthStatus {
   method: 'device' | 'cookies' | null;
   expires_hint: string | null;
   login_url?: string;
+  last_error?: string;
 }
 export interface Status {
   currency: string;
