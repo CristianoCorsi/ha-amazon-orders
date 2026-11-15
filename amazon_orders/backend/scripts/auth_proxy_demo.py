@@ -20,10 +20,10 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from amazon_orders_ha.auth import AuthRequired, ProxyAuthProvider  # noqa: E402
+from amazon_orders_ha.auth import AuthRequired, CookieAuthProvider, ProxyAuthProvider  # noqa: E402
 
 
-def count_recent_orders(provider: ProxyAuthProvider) -> int:
+def count_recent_orders(provider: CookieAuthProvider) -> int:
     """One last-30-days list operation, no details, 20–40s between pages."""
     from amazonauth.util import select_one
     from amazonorders.orders import AmazonOrders
