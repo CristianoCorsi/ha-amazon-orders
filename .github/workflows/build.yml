@@ -45,6 +45,8 @@ jobs:
         with:
           architectures: ${{ env.ARCHITECTURES }}
           image-name: ${{ env.IMAGE_NAME }}
+          # GHCR repository names must be lowercase; the owner is "CristianoCorsi".
+          registry-prefix: ghcr.io/cristianocorsi
 
   build:
     name: Build ${{ matrix.arch }}
