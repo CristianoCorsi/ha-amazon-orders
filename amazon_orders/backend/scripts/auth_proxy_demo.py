@@ -100,7 +100,7 @@ async def serve(args: argparse.Namespace) -> None:
                 + '">Start Amazon sign-in</a></p>'
                 "<p>If a JavaScript/CAPTCHA challenge loops, stop; use the real-browser fallback.</p>"
             ),
-            headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY"},
+            headers={"Cache-Control": "no-store", "Referrer-Policy": "same-origin", "X-Frame-Options": "DENY"},
         )
 
     async def health(request):

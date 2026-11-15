@@ -201,7 +201,13 @@ class ProxyAuthProvider(CookieAuthProvider):
         if request.host != expected.netloc:
             return web.Response(status=403, text="Unexpected Host")
         origin = request.headers.get("Origin")
-        if origin is not None and origin != f"{expected.scheme}://{expected.netloc}":
+        # Browsers send "Origin: null" on same-origin form POSTs when the page's
+        # referrer policy is no-referrer (Amazon's pages may set one). Accept it
+        # only when Fetch Metadata confirms the request comes from this origin.
+        same_site = request.headers.get("Sec-Fetch-Site") in ("same-origin", "none")
+        if origin is not None and origin != f"{expected.scheme}://{expected.netloc}" and not (
+            origin == "null" and same_site
+        ):
             return web.Response(status=403, text="Unexpected Origin")
         if request.method not in ("GET", "POST", "HEAD", "OPTIONS"):
             return web.Response(status=405)
@@ -232,7 +238,7 @@ class ProxyAuthProvider(CookieAuthProvider):
                 ):
                     response.headers.popall(name, None)
                 response.headers["Cache-Control"] = "no-store"
-                response.headers["Referrer-Policy"] = "no-referrer"
+                response.headers["Referrer-Policy"] = "same-origin"
                 return response
             except Exception:
                 return web.Response(

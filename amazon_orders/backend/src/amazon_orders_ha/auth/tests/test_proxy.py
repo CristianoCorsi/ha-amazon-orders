@@ -55,6 +55,22 @@ class ProxyTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(denied.status, 403)
                 self.assertEqual(len(calls), 2)
+                # "Origin: null" is accepted only with same-origin Fetch Metadata.
+                denied = await client.post(
+                    path + "ap/signin",
+                    data={"password": "fake"},
+                    headers={"Host": "localhost:8098", "Origin": "null", "Sec-Fetch-Site": "cross-site"},
+                )
+                self.assertEqual(denied.status, 403)
+                self.assertEqual(len(calls), 2)
+                allowed = await client.post(
+                    path + "ap/signin",
+                    data={"password": "fake"},
+                    headers={"Host": "localhost:8098", "Origin": "null", "Sec-Fetch-Site": "same-origin"},
+                )
+                await allowed.read()
+                self.assertNotEqual(allowed.status, 403)
+                self.assertEqual(len(calls), 3)
             finally:
                 await client.close()
                 await p.aclose()
