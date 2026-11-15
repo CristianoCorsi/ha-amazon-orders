@@ -11,8 +11,15 @@ Built on top of [`amazon-orders`](https://github.com/alexdlaird/amazon-orders).
 <p>
   <img src="docs/images/orders-mobile-light.png" width="24%" alt="Orders on a phone">
   <img src="docs/images/detail-mobile-dark.png" width="24%" alt="Item detail, dark theme">
-  <img src="docs/images/overview-auth_required-mobile-light.png" width="24%" alt="Sign-in">
+  <img src="docs/images/signin-mobile-light.png" width="24%" alt="Sign-in">
 </p>
+
+<p>
+  <img src="docs/images/deadlines-desktop-light.png" width="49%" alt="Return and warranty deadlines">
+  <img src="docs/images/statistics-desktop-dark.png" width="49%" alt="Statistics, dark theme">
+</p>
+
+All screenshots use synthetic demo data. Regenerate them with `pnpm readme:images` in `amazon_orders/frontend`.
 
 ## Features
 

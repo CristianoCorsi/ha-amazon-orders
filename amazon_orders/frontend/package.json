@@ -14,7 +14,8 @@
     "test:visual": "node scripts/visual-test.mjs",
     "test:a11y": "node scripts/a11y-test.mjs",
     "test:integration": "node scripts/integration-test.mjs",
-    "format": "prettier --write src scripts/*.mjs *.json *.ts *.js"
+    "format": "prettier --write src scripts/*.mjs *.json *.ts *.js",
+    "readme:images": "node scripts/readme-images.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
