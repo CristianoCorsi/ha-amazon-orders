@@ -35,8 +35,8 @@ docs/                           # SPEC.md, design notes
   `paho-mqtt` for MQTT discovery, `httpx` for the HA Core API through the Supervisor proxy.
 - Frontend: SvelteKit + `@sveltejs/adapter-static` (SPA, `fallback: index.html`), TypeScript,
   no heavy UI kit. Charts: a small library (e.g. `layercake` or hand-written SVG). pnpm.
-- Data dir inside the add-on: `/data` (SQLite at `/data/amazon_orders.db`, Amazon session
-  cookies at `/data/amazonorders/`). Never log cookies, passwords, OTPs, addresses or card digits.
+- Data dir inside the add-on: `/data` (SQLite at `/data/amazon_orders.db`, Amazon device token and
+  session cookies at `/data/auth/`). Never log cookies, passwords, OTPs, addresses or card digits.
 
 ## 4. Amazon access (library facts verified 2026-11-15)
 
@@ -136,19 +136,48 @@ The user writes their own automations; the add-on only exposes data.
    description with order and item link). Users add it with HA's Remote Calendar integration
    using the add-on's internal hostname. Document the exact URL in DOCS.md.
 
-## 9. Authentication (prototype in progress, see docs/auth-design.md when it exists)
+## 9. Authentication (verified design, see docs/auth-design.md)
 
-Primary: **login proxy** reachable from the HA UI. The user opens a link from the add-on page,
-signs in on Amazon's own pages relayed through the add-on (password + OTP typed by the user in
-their browser), and the proxy captures the session cookies (pattern of `authcaptureproxy` used
-by Alexa Media Player). Bonus if feasible: register a virtual device (like the Amazon mobile apps)
-to get a refresh token that renews web cookies without user interaction.
+Verified by a human on 2026-11-15 against a real amazon.it account with 2FA: sign-in through the login
+proxy, device registration, and cookie renewal from the stored refresh token without any login.
 
-Fallback: **remote browser** (Chromium + noVNC) shown inside the Ingress page.
+**Production provider: `DeviceAuthProvider`** (`amazon_orders_ha.auth`, created by
+`create_auth_provider(settings)`).
+
+- `start(host)` opens the **login proxy on its own add-on port** (option `login_port`, default 8098) and
+  returns the absolute URL `http://<host>:<login_port>/auth/proxy/<random>/`. Amazon's HTML/JavaScript must
+  never run on Home Assistant's origin, hence a separate port and origin, bound **only while a login is in
+  progress** (closed on completion, timeout of 15 min, logout, add-on stop). `<host>` is the host the
+  browser used to reach HA (`X-Forwarded-Host`, else `Host` of the Ingress request, port stripped) unless
+  the option `login_host` overrides it (`host` or `host:port`). The relay speaks plain HTTP, so the derived
+  host must be a LAN address/name; the user signs in from the home network or through their own VPN.
+  A public host is refused unless `login_host` is set explicitly.
+- The proxy relays the global `amazon.com` device sign-in (PKCE, scope `device_auth_access`); the user types
+  password and OTP in their own browser. On success the add-on registers a virtual device, stores
+  `<data>/auth/device.json` (`refresh_token`, `device_serial`, `domain`; mode 0600) and exchanges the token
+  for `www.<domain>` cookies (`<data>/auth/cookies.<domain>.json`, 0600, dir 0700).
+- `get_session()` makes no Amazon request while the cookies are valid. When they are missing, expired or
+  about to expire it renews them from the refresh token (`api.amazon.com/auth/token`): exactly one attempt,
+  then `auth_required` (token refused) or a back-off of 15 min (network/5xx, not an auth failure). If
+  Amazon rejects the cookies during a sync request the engine asks for one in-place renewal and retries
+  that request once. A background check every hour renews proactively when the jar is older than 24 h.
+- `logout()` closes the login port, deregisters the device at Amazon (best effort:
+  `POST api.amazon.com/auth/deregister`, as in alexapy; unverified by this project) and deletes
+  `<data>/auth/`. If deregistration fails the user removes the device in their Amazon account.
+- Dev only: `AMAZON_ORDERS_DEV_AUTH=1` (fake ok) and `AMAZON_ORDERS_AUTH=cookie_file`
+  (`CookieFileAuthProvider`, jar in `<data>/amazonorders/`).
+
+Status: `{state: 'ok'|'auth_required'|'in_progress', method: 'device'|'cookies'|null, expires_hint,
+login_url}`; `login_url` only while `in_progress`. `method` is `device` while `device.json` exists (also
+in `auth_required` after a refused token), `cookies` for a cookie jar without device.
+
+Fallback if the relay fails against a future Amazon challenge: remote browser (Chromium + noVNC) in the
+Ingress page. Not implemented.
 
 The backend exposes:
-`GET /api/auth/status` → `{state: 'ok'|'auth_required'|'in_progress', method, expires_hint}`,
-`POST /api/auth/start` → `{url}` (where to send the user), `POST /api/auth/logout`.
+`GET /api/auth/status` → `{state, method, expires_hint, login_url?}`,
+`POST /api/auth/start` → `{url}` (open it in a new browser tab on the same LAN; works through Ingress),
+`POST /api/auth/logout` → `{ok: true, deregistered?: bool}`.
 
 ## 10. HTTP API (backend → frontend)
 
@@ -175,6 +204,9 @@ POST  api/sync/recent                trigger now
 POST  api/sync/backfill              {action: 'start'|'pause'}
 POST  api/cache/purge                {scope: 'all'|'year:YYYY'|'order:ID'}
 GET   api/settings                   read-only view of add-on options relevant to the UI
+GET   api/auth/status                {state, method, expires_hint, login_url?}
+POST  api/auth/start                 {url}  (login proxy URL, see §9)
+POST  api/auth/logout                {ok, deregistered?}
 GET   calendar.ics
 ```
 
@@ -184,7 +216,8 @@ Dates are ISO `YYYY-MM-DD`. Errors: `{error: {code, message}}`.
 ### 10.1 Response shapes (added by the backend implementation; additive, no path changes)
 
 - Errors: `{error: {code, message}}`; codes `not_found` (404), `validation_error` (422),
-  `auth_unavailable` (501), `internal_error` (500). Unknown `api/...` paths return the same JSON 404.
+  `forbidden` (403, cross-origin auth POST), `auth_unavailable` (501, sign-in cannot start: bad host, port in use),
+  `internal_error` (500). Unknown `api/...` paths return the same JSON 404.
 - List filters (`api/orders`, `api/items`, `api/export.csv`): `q` (FTS, accent-insensitive, prefix match, over title,
   seller, order number), `from`/`to` (placed date, ISO), `seller` (exact, case-insensitive),
   `status` (`none|keep|to_return|returned|cancelled`), `min`/`max` (order grand total for orders, item price for
@@ -219,6 +252,8 @@ Dates are ISO `YYYY-MM-DD`. Errors: `{error: {code, message}}`.
   cooldown|null, last_error|null, last_recent, next_recent_at, counts, currency, version, ha}`.
 - The server injects `<base href="{X-Ingress-Path}/">` into `index.html` so relative URLs work under Ingress.
 - Item `status = keep` means "decided to keep": it suppresses return deadlines/events (warranty is unaffected).
+- `POST api/auth/start` / `api/auth/logout` refuse a request whose `Origin` is not the host the browser used
+  (`X-Forwarded-Host`, else `Host`). `start` takes that host from the same headers (no body).
 - Money fields `gift_card`, `coupon_savings`, `refund_total` are stored as positive magnitudes.
 
 ## 11. Add-on options (config.yaml)
@@ -231,11 +266,14 @@ return_thresholds: [7, 2, 0]
 warranty_thresholds: [180, 90, 60, 30, 14, 5]
 default_warranty_months: 24
 mqtt: {host, port, username, password}   # optional; default from Supervisor discovery
+login_port: 8098                # container port of the login proxy; add-on exposes it as 8098/tcp (opened only during sign-in)
+login_host: ""                  # optional host[:port] put in the sign-in link (overrides the host the browser used)
 advanced:
   domain: amazon.it             # hidden in UI as advanced; only amazon.it is tested
 log_level: info
 ```
 
+Network: `ports: {8098/tcp: 8098}` (login proxy; nothing listens until the user starts a sign-in).
 Arch: `aarch64`, `amd64`. Ingress enabled, panel icon `mdi:package-variant-closed`.
 Base image: Debian-based (Playwright/Chromium do not run on Alpine/musl).
 

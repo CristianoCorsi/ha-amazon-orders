@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 
 from amazon_orders_ha import repo
-from amazon_orders_ha.auth_provider import AuthProvider, AuthRequired, CookieFileAuthProvider
+from amazon_orders_ha.auth import AuthProvider, AuthRequired, CookieFileAuthProvider, DeviceAuthProvider
 from amazon_orders_ha.config import MqttOptions, Options
 from amazon_orders_ha.db import Database
 from amazon_orders_ha.ha import (
@@ -169,4 +169,8 @@ def test_dev_auth_provider_env(settings, monkeypatch):
     p = make_auth_provider(settings)
     assert p.status()["state"] == "ok" and isinstance(p, AuthProvider)
     monkeypatch.delenv("AMAZON_ORDERS_DEV_AUTH")
+    p = make_auth_provider(settings)
+    assert isinstance(p, DeviceAuthProvider) and isinstance(p, AuthProvider)
+    assert p.login_port == 8098 and p.store.directory == settings.data_dir / "auth"
+    monkeypatch.setenv("AMAZON_ORDERS_AUTH", "cookie_file")
     assert isinstance(make_auth_provider(settings), CookieFileAuthProvider)

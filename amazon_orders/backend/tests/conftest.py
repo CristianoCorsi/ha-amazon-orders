@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from amazon_orders_ha.auth_provider import AuthRequired
+from amazon_orders_ha.auth import AuthRequired
 from amazon_orders_ha.config import Options, Settings
 from amazon_orders_ha.db import Database
 from amazon_orders_ha.dev import seed_database
@@ -50,11 +50,13 @@ class FakeAuth:
     def __init__(self, ok: bool = True):
         self.ok = ok
         self.logged_out = False
+        self.start_hosts: list[str | None] = []
 
     def status(self) -> dict[str, Any]:
         return {"state": "ok" if self.ok else "auth_required", "method": "fake", "expires_hint": None}
 
-    def start(self) -> str:
+    def start(self, host: str | None = None) -> str:
+        self.start_hosts.append(host)
         return "https://login.example.test/start"
 
     def logout(self) -> None:

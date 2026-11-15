@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from . import repo
-from .auth_provider import AuthProvider, AuthRequired
+from .auth import AuthProvider, AuthRequired, AuthTemporarilyUnavailable
 from .config import Options
 from .db import Database
 from .mapping import map_order
@@ -152,30 +152,45 @@ class SyncEngine:
             if conn is None:
                 c.close()
 
-    def _request(self, conn, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-        """Run one Amazon request through the gate, translating errors."""
-        self.gate.wait()
+    def _renew_after_rejection(self) -> bool:
+        """Amazon rejected our cookies: ask the provider for ONE renewal (in place). False if not possible."""
+        renew = getattr(self.auth, "renew_session", None)
+        if renew is None:
+            return False
         try:
-            result = fn(*args, **kwargs)
-        except Stopped:
-            raise
-        except Exception as exc:
-            kind = classify(exc)
-            if kind == "auth":
-                self._require_auth(conn)
-                raise SyncAbort("auth") from exc
-            if kind == "rate":
-                self._trip(conn, f"{type(exc).__name__}: {exc}"[:200])
-                raise SyncAbort("rate") from exc
-            if kind == "gone":
-                raise ItemError("not found") from exc
-            self._consecutive_parse += 1
-            self._set_error(conn, "parse_error", f"{type(exc).__name__}: {exc}")
-            if self._consecutive_parse > MAX_CONSECUTIVE_PARSE_ERRORS:
-                self._trip(conn, "parse errors on more than 3 consecutive requests")
-                raise SyncAbort("parse") from exc
-            raise ItemError(str(exc)) from exc
-        return result
+            return bool(renew())
+        except Exception:
+            log.exception("session renewal failed")
+            return False
+
+    def _request(self, conn, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        """Run one Amazon request through the gate, translating errors (one renewal retry on auth rejection)."""
+        renewed = False
+        while True:
+            self.gate.wait()
+            try:
+                return fn(*args, **kwargs)
+            except Stopped:
+                raise
+            except Exception as exc:
+                kind = classify(exc)
+                if kind == "auth":
+                    if not renewed and self._renew_after_rejection():
+                        renewed = True
+                        continue
+                    self._require_auth(conn)
+                    raise SyncAbort("auth") from exc
+                if kind == "rate":
+                    self._trip(conn, f"{type(exc).__name__}: {exc}"[:200])
+                    raise SyncAbort("rate") from exc
+                if kind == "gone":
+                    raise ItemError("not found") from exc
+                self._consecutive_parse += 1
+                self._set_error(conn, "parse_error", f"{type(exc).__name__}: {exc}")
+                if self._consecutive_parse > MAX_CONSECUTIVE_PARSE_ERRORS:
+                    self._trip(conn, "parse errors on more than 3 consecutive requests")
+                    raise SyncAbort("parse") from exc
+                raise ItemError(str(exc)) from exc
 
     def _get_client(self, conn) -> Any:
         try:
@@ -183,6 +198,10 @@ class SyncEngine:
         except AuthRequired as exc:
             self._require_auth(conn, str(exc) or "no session")
             raise SyncAbort("auth") from exc
+        except AuthTemporarilyUnavailable as exc:
+            # Renewal could not reach Amazon: not an auth failure, back off instead of asking the user to sign in.
+            self._trip(conn, str(exc) or "cookie renewal unavailable")
+            raise SyncAbort("auth_unavailable") from exc
 
     def can_run(self, conn) -> str | None:
         """Return a reason string if jobs must not run now."""
@@ -438,12 +457,22 @@ class SyncEngine:
         with self._lock:
             conn = self._conn()
             try:
+                popped = getattr(self.auth, "pop_login_completed", None)
+                if popped is not None and popped():
+                    # A sign-in just finished: lift the auth_required stop and refresh now.
+                    repo.set_state(conn, "auth_required", False)
+                    repo.set_state(conn, "recent_requested", True)
+                if self.auth.status().get("state") == "in_progress":
+                    return None
                 if self.can_run(conn):
                     return None
                 try:
                     self.auth.get_session()
                 except AuthRequired:
                     self._require_auth(conn, "no valid session")
+                    return None
+                except AuthTemporarilyUnavailable:
+                    log.warning("cookie renewal unavailable; will retry")
                     return None
                 except Exception:
                     log.exception("auth provider failed")

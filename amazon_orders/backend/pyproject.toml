@@ -13,6 +13,8 @@ dependencies = [
   "amazon-orders==6.0.*",
   "paho-mqtt>=2.0",
   "httpx>=0.27",
+  "aiohttp==3.13.3",
+  "authcaptureproxy==1.3.9",
   "python-dateutil>=2.9",
 ]
 
@@ -24,10 +26,10 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning:authcaptureproxy.*", "ignore::DeprecationWarning:aiohttp.*"]
 
 [tool.ruff]
 line-length = 120
-extend-exclude = ["src/amazon_orders_ha/auth"]
 target-version = "py312"
 
 [tool.ruff.lint]

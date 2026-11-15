@@ -1,8 +1,9 @@
-"""Experimental Amazon mobile-device protocol, opt-in only.
+"""Amazon mobile-device protocol: registration payloads, refresh-token exchange, deregistration.
 
 Protocol reference: LordHenry76/ha-amazon-orders api/auth.py (Apache-2.0,
-Copyright 2024 Simone Chemelli and contributors via aioamazondevices).
-This module builds payloads; the proxy supplies human-completed browser auth.
+Copyright 2024 Simone Chemelli and contributors via aioamazondevices) and alexapy ``secureauth.py``.
+This module builds payloads and parses answers; the login proxy supplies the human-completed browser auth.
+HTTP helpers take an ``httpx`` client so tests can inject a ``MockTransport``.
 """
 
 from __future__ import annotations
@@ -16,7 +17,11 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.parse import urlencode
 
+import httpx
+
 from .cookies import is_site_domain
+
+API_BASE = "https://api.amazon.com"
 
 APP_NAME = "Home Assistant Amazon Orders Auth Experiment"
 DEVICE_TYPE = "A2IVLV5VM2W81"
@@ -102,15 +107,15 @@ class DeviceFlow:
         }
 
 
-def token_form(refresh_token: str) -> dict[str, str]:
+def token_form(refresh_token: str, domain: str = "amazon.it", token_type: str = "auth_cookies") -> dict[str, str]:
     return {
         "app_name": APP_NAME,
         "app_version": APP_VERSION,
         "di.sdk.version": "6.12.4",
         "source_token": refresh_token,
         "source_token_type": "refresh_token",
-        "requested_token_type": "auth_cookies",
-        "domain": "www.amazon.it",
+        "requested_token_type": token_type,
+        "domain": "www." + domain,
         "package_name": "com.amazon.echo",
         "platform": "iOS",
         "di.hw.version": "iPhone",
@@ -121,10 +126,10 @@ def token_form(refresh_token: str) -> dict[str, str]:
     }
 
 
-def exchange_cookie_records(payload: dict[str, Any]) -> list[dict[str, Any]]:
+def exchange_cookie_records(payload: dict[str, Any], site: str = "amazon.it") -> list[dict[str, Any]]:
     result = []
     for domain, cookies in payload["response"]["tokens"]["cookies"].items():
-        if not is_site_domain(domain, "amazon.it"):
+        if not is_site_domain(domain, site):
             continue
         for cookie in cookies:
             expiry = cookie.get("Expires")
@@ -143,5 +148,54 @@ def exchange_cookie_records(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 }
             )
     if not result:
-        raise ValueError("No Italian cookies in token exchange")
+        raise ValueError("No cookies for the site in token exchange")
     return result
+
+
+class TokenRejected(Exception):
+    """Amazon definitively refused the refresh token (revoked device, bad request)."""
+
+
+class TokenTransient(Exception):
+    """Network failure, HTTP 429/5xx: nothing is known about the token."""
+
+
+def exchange_refresh_token(client: httpx.Client, refresh_token: str, domain: str = "amazon.it") -> list[dict[str, Any]]:
+    """Exchange the device refresh token for fresh web cookies (one request; no login)."""
+    try:
+        response = client.post(API_BASE + "/auth/token", data=token_form(refresh_token, domain))
+    except httpx.HTTPError as exc:
+        raise TokenTransient(type(exc).__name__) from None
+    if response.status_code in (400, 401, 403):
+        raise TokenRejected(f"HTTP {response.status_code}")
+    if response.status_code != 200:
+        raise TokenTransient(f"HTTP {response.status_code}")
+    try:
+        return exchange_cookie_records(response.json(), domain)
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise TokenRejected("unexpected token answer") from None
+
+
+def deregister_device(client: httpx.Client, refresh_token: str, domain: str = "amazon.it") -> bool:
+    """Best effort: remove the virtual device from the account. Never raises; True when Amazon said 200.
+
+    Endpoint as used by alexapy (``SecureAuth.async_deregister``): ``POST api.amazon.com/auth/deregister`` with a
+    bearer access token and ``{"requested_deregister_type": "deregister_device"}``. The access token comes from the
+    same ``/auth/token`` endpoint with ``requested_token_type=access_token`` (as in LordHenry76, which marks its
+    deregistration unverified). Not verified against Amazon by this project.
+    """
+    try:
+        response = client.post(API_BASE + "/auth/token", data=token_form(refresh_token, domain, "access_token"))
+        if response.status_code != 200:
+            return False
+        access = response.json().get("access_token")
+        if not isinstance(access, str) or not access:
+            return False
+        response = client.post(
+            API_BASE + "/auth/deregister",
+            json={"requested_deregister_type": "deregister_device"},
+            headers={"Authorization": f"Bearer {access}"},
+        )
+        return response.status_code == 200
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return False

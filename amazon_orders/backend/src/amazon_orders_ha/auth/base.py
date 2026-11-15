@@ -1,54 +1,80 @@
-"""Synchronous backend contract and isolated amazon-orders cookie storage."""
+"""Auth contract (one interface for the whole backend) and isolated amazon-orders cookie storage."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, TypedDict, runtime_checkable
+from typing import TYPE_CHECKING, Any, NotRequired, Protocol, TypedDict, runtime_checkable
 
 if TYPE_CHECKING:
     from amazonorders.session import AmazonSession
 
+#: Cookie that amazon-auth 1.1.0 uses as "this jar is authenticated" marker (all sites).
+AUTH_COOKIE = "x-acbit"
+
 
 class AuthRequired(RuntimeError):
-    """The worker must stop and ask the human to sign in."""
+    """No valid Amazon session: the human has to sign in again."""
+
+
+class AuthTemporarilyUnavailable(RuntimeError):
+    """Renewal failed for a transient reason (network, HTTP 5xx/429). The session is not known to be bad."""
 
 
 class AuthStatus(TypedDict):
-    state: str
-    method: str
+    state: str  # 'ok' | 'auth_required' | 'in_progress'
+    method: str | None  # 'device' | 'cookies' | ... | None when nothing is stored
     expires_hint: str | None
+    login_url: NotRequired[str]  # only while state == 'in_progress'
 
 
 @runtime_checkable
 class AuthProvider(Protocol):
-    def status(self) -> AuthStatus: ...
-    def start(self) -> str: ...
-    def logout(self) -> None: ...
-    def get_session(self) -> AmazonSession: ...
+    """What the sync engine and the API need. All methods are synchronous and thread-safe.
 
-
-class CookieAuthProvider:
-    """Never invokes login(), prompts for credentials, or reads the home config.
-
-    get_session() may perform ONE read-only order-history verification. Invoke
-    it in the backend's single request gate/thread, never in an async route.
-    invalidate() must be called on subsequent Amazon authentication failures.
+    Optional capabilities, discovered with ``getattr`` (see :class:`RenewableAuth`), are not part of the
+    required surface so that simple providers and test fakes stay small.
     """
 
-    method = "cookies"
+    def status(self) -> AuthStatus:
+        """No network. ``login_url`` is present only while ``state == 'in_progress'``."""
 
-    def __init__(self, data_dir: Path, domain: str = "amazon.it") -> None:
-        if domain != "amazon.it":
-            raise ValueError("Only amazon.it is enabled in this prototype")
-        self.data_dir = Path(data_dir).resolve()
+    def start(self, host: str | None = None) -> str:
+        """Begin an interactive sign-in; return the absolute URL the user must open.
+
+        ``host`` is the host (optionally with port) the user's browser used to reach the add-on. Raises
+        :class:`AuthRequired` when no flow can be started.
+        """
+
+    def logout(self) -> None:
+        """Forget the session locally (and deregister the device at Amazon, best effort, if one exists)."""
+
+    def get_session(self) -> AmazonSession:
+        """Authenticated ``AmazonSession`` (no Amazon request unless cookies must be renewed) or ``AuthRequired``."""
+
+
+class RenewableAuth(Protocol):
+    def renew_session(self) -> bool:
+        """Amazon rejected the current cookies: renew once, in place. True when fresh cookies are in use."""
+
+    def renew_if_due(self) -> bool:
+        """Proactive renewal job. True when a renewal happened."""
+
+    def pop_login_completed(self) -> bool:
+        """True exactly once after an interactive sign-in finished successfully."""
+
+
+class CookieStore:
+    """One amazon-orders cookie jar in a private directory. Never calls login(), never reads user config/env."""
+
+    def __init__(self, directory: Path, domain: str = "amazon.it") -> None:
+        self.directory = Path(directory).resolve()
         forbidden = (Path.home() / ".config" / "amazonorders").resolve()
-        if self.data_dir == forbidden or forbidden in self.data_dir.parents:
+        if self.directory == forbidden or forbidden in self.directory.parents:
             raise ValueError("Refusing the user's existing amazonorders directory")
-        self.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self.cookie_path = self.data_dir / "cookies.amazon.it.json"
+        self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.directory.chmod(0o700)
         self.domain = domain
-        self._session: AmazonSession | None = None
-        self._verified = False
+        self.cookie_path = self.directory / f"cookies.{domain}.json"
 
     def new_session(self) -> AmazonSession:
         from amazonorders.conf import AmazonOrdersConfig
@@ -57,60 +83,32 @@ class CookieAuthProvider:
         class IsolatedConfig(AmazonOrdersConfig):
             @classmethod
             def read_environment(cls) -> dict[str, Any]:
-                # AMAZON_COOKIE_JAR_PATH and class hooks must not escape /data.
+                # AMAZON_COOKIE_JAR_PATH & co. must not escape the add-on data directory.
                 return {}
 
         if self.cookie_path.is_symlink():
             raise ValueError("Cookie file must not be a symlink")
         config = IsolatedConfig(
-            config_path=str(self.data_dir / "unused-config.yml"),
+            config_path=str(self.directory / "unused-config.yml"),
             data={
                 "cookie_jar_path": str(self.cookie_path),
                 "domain": self.domain,
+                "output_dir": str(self.directory / "output"),
                 "warn_on_missing_required_field": True,
                 "request_timeout": 30,
             },
         )
         return AmazonSession(config=config, debug=False)
 
-    def import_cookies(self, records: list[dict[str, Any]]) -> None:
-        self.invalidate()
-        session = self.new_session()
+    def import_cookies(self, records: list[dict[str, Any]], session: AmazonSession | None = None) -> None:
+        """Replace the stored cookies (no network). With ``session``, update that live session in place."""
+        own = session is None
+        session = session or self.new_session()
         try:
             session.import_cookies(records, verify=False)
         finally:
-            session.session.close()
+            if own:
+                session.session.close()
 
-    def status(self) -> AuthStatus:
-        return {"state": "ok" if self._verified else "auth_required", "method": self.method, "expires_hint": None}
-
-    def start(self) -> str:
-        raise AuthRequired("No interactive transport has been configured")
-
-    def invalidate(self) -> None:
-        self._verified = False
-        if self._session is not None:
-            self._session.session.close()
-        self._session = None
-
-    def get_session(self) -> AmazonSession:
-        if self._session is not None and self._verified:
-            return self._session
-        session = self.new_session()
-        try:
-            if not session.check_session(verify=True):
-                raise AuthRequired("Sign in again")
-        except Exception:
-            session.session.close()
-            self.invalidate()
-            raise AuthRequired("Session verification failed; sign in again") from None
-        session.is_authenticated = True
-        self._session = session
-        self._verified = True
-        return session
-
-    def logout(self) -> None:
-        # Local logout only: upstream logout() would send an Amazon request.
-        self.invalidate()
+    def clear(self) -> None:
         self.cookie_path.unlink(missing_ok=True)
-        (self.data_dir / "device.json").unlink(missing_ok=True)

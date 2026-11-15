@@ -1,14 +1,82 @@
 # Amazon authentication design
 
-Date: 2026-11-15. Status: local research prototype; human sign-in and HA Ingress validation pending.
+Date: 2026-11-15. Status: **production design verified by a human** (login proxy, device registration and cookie renewal on a real amazon.it account with 2FA); integrated in the backend as `DeviceAuthProvider`. HA add-on deployment (Ingress, LAN port) is not yet exercised on a real HA instance.
 
 ## Decision
 
-Keep the `AuthProvider` boundary independent of the interactive transport. Trial an `authcaptureproxy` login relay first, with the human entering their password and OTP. Keep a real Chromium session behind noVNC as the fallback when Amazon's JavaScript challenge cannot run through the relay. Do not promise that proxy login will fix this account's existing JavaScript blocker.
+Production: **device registration through the login proxy, then automatic cookie renewal from the stored refresh token.**
 
-For production, serve the **trusted noVNC client and WebSocket under Ingress**, without exposing VNC or another host port. Do **not** serve unsandboxed Amazon HTML/JavaScript on Home Assistant's origin. The proxy experiment runs on its own loopback origin. A production relay needs either an isolated HTTPS origin with its own short-lived authorization or an opaque-origin sandbox that passes the phone/CAPTCHA tests below. Until that isolation works, choose the remote browser from the Ingress UI. This is a security gate, not a completed deployment feature.
+1. The user opens a link from the add-on page and signs in on Amazon's own pages relayed by the add-on (`authcaptureproxy`), typing password and OTP in their own browser.
+2. The flow is the global `www.amazon.com` PKCE sign-in with scope `device_auth_access`. The proxy captures the authorization code, the add-on registers a virtual device (`api.amazon.com/auth/register`) and stores only the refresh token, device serial and domain.
+3. From then on `api.amazon.com/auth/token` turns the refresh token into fresh `www.amazon.it` cookies without any login. The user signs in again only if Amazon revokes the device or the token is refused.
 
-Device registration is plausible enough for an explicit `--register-device` experiment. It is not the default: it changes the Amazon account by creating a virtual device, retains a more powerful long-lived secret, and has not been verified with this account.
+Verified by a human on 2026-11-15 (real amazon.it account, 2FA): (a) signing in through `http://localhost:8098` and reading the order list with the captured cookies; (b) with device registration, a later run of `scripts/auth_refresh_check.py` exchanged the stored token for fresh cookies with no login and the read-only order check succeeded.
+
+**Origin isolation.** Amazon HTML/JavaScript must **not** run on Home Assistant's origin. The proxy therefore listens on its **own add-on port** (option `login_port`, default 8098), a different origin from HA, and only while a login is in progress. The URL is a short-lived random capability (`/auth/proxy/<32 random bytes>/`) with Host/Origin checks and a 15-minute deadline. The remote-browser (Chromium + noVNC) design below remains the documented fallback if the relay stops working against a future Amazon challenge; it is not implemented.
+
+**Transport and LAN-only login.** The login port serves plain HTTP and the password passes through the add-on. The sign-in link is built from the host the browser used to reach HA (`X-Forwarded-Host`, else `Host` of the Ingress request, port removed), or from the option `login_host`. The derived host must be a loopback/private IP or a LAN-style name (`*.local`, single label, ...); otherwise `start()` refuses. Do the sign-in from the home network or through the user's own VPN; do not publish port 8098 on the internet. HTTPS on that port is not implemented (open risk): anyone on the LAN path could read the password in transit, so do not sign in over untrusted Wi-Fi.
+
+## Production implementation
+
+Package `amazon_orders_ha.auth`:
+
+| Module | Role |
+| --- | --- |
+| `base.py` | The one contract: `AuthProvider` protocol, `AuthRequired`, `AuthTemporarilyUnavailable`, `AuthStatus`, `CookieStore` (isolated amazon-orders jar, never reads user config/env) |
+| `provider.py` | `DeviceAuthProvider`, `create_auth_provider(settings)` |
+| `proxy.py` | `LoginProxy`: async relay for one login attempt (capability path, Host/Origin checks, callbacks) |
+| `server.py` | `LoginServer`: runs a `LoginProxy` on its own port in a private event-loop thread; port bound only while it lives |
+| `device.py` | Registration payloads, `/auth/token` exchange, best-effort deregistration |
+| `local.py` | Dev-only `CookieFileAuthProvider`, `DevAuthProvider` |
+
+Contract (all synchronous, thread-safe):
+
+```python
+status() -> {"state": "ok" | "auth_required" | "in_progress",
+             "method": "device" | "cookies" | None, "expires_hint": str | None,
+             "login_url": str}                  # login_url only while in_progress
+start(host: str | None) -> str                  # opens the login port, returns the absolute URL
+get_session() -> AmazonSession                  # renews cookies when needed, else AuthRequired
+logout() -> None                                # deregister (best effort) + delete <data>/auth/
+# optional capabilities used by the sync engine / runner (getattr):
+renew_session() -> bool        # Amazon rejected the cookies: one in-place renewal, then the request is retried once
+renew_if_due() -> bool         # hourly check; renews when the jar is older than 24 h
+pop_login_completed() -> bool  # True once after a finished sign-in: engine clears auth_required and refreshes
+```
+
+Storage (`<data>/auth/`, directory 0700, files 0600): `device.json` = `{refresh_token, device_serial, domain}`, `cookies.<domain>.json`. Passwords, OTPs and the PKCE verifier are never written.
+
+Renewal rules:
+
+- `get_session()` does no request while the `x-acbit` cookie is present and not within 10 minutes of expiry. Otherwise one `/auth/token` exchange. Token refused (HTTP 400/401/403, unusable answer) → `AuthRequired`, no further attempts until a new sign-in. Network error / 429 / 5xx → `AuthTemporarilyUnavailable`, no new attempt for 15 minutes; the sync engine enters its normal cooldown instead of reporting `auth_required`.
+- Rejected cookies during a sync request: the engine calls `renew_session()` and retries that single request once; a second rejection sets `auth_required` (existing event).
+- The cached `AmazonSession` is updated in place, so in-flight clients see the new cookies.
+- `logout()` stops a running login first, then `POST api.amazon.com/auth/token` (access token) and `POST api.amazon.com/auth/deregister` with `{"requested_deregister_type": "deregister_device"}` (alexapy `SecureAuth.async_deregister`; LordHenry76 documents the same endpoint as unverified), then deletes the local files regardless of the outcome. If Amazon did not confirm, `/api/auth/logout` answers `deregistered: false` and the user should remove the device in the Amazon account.
+
+Backend integration: `POST api/auth/start` passes `X-Forwarded-Host` (else `Host`) to `start()` and returns `{url}`; it works through Ingress because the returned URL is absolute and points at the login port, not at the Ingress path. POST endpoints refuse a mismatching `Origin`. The add-on must expose `8098/tcp` (packaging, see SPEC §11); nothing listens until a login starts.
+
+```mermaid
+sequenceDiagram
+    actor Human
+    participant UI as HA Ingress UI
+    participant API as Backend API
+    participant Auth as DeviceAuthProvider
+    participant Port as Login port 8098
+    participant Amazon
+    Human->>UI: Start sign-in
+    UI->>API: POST api/auth/start (X-Forwarded-Host)
+    API->>Auth: start(host)
+    Auth->>Port: bind (only now)
+    Auth-->>UI: http://host:8098/auth/proxy/<random>/
+    Human->>Port: open link on the LAN, type password + OTP
+    Port->>Amazon: relayed amazon.com sign-in (PKCE)
+    Amazon-->>Port: authorization code
+    Auth->>Amazon: /auth/register, then /auth/token
+    Auth->>Auth: device.json + cookies (0600), close port
+    loop every sync / hourly
+        Auth->>Amazon: /auth/token (only when cookies expire or are rejected)
+    end
+```
 
 ## Evidence and limits
 
@@ -46,7 +114,7 @@ LordHenry76's implementation uses global `www.amazon.com` sign-in, PKCE scope `d
 
 This is source-level evidence that these tokens are intended to unlock retail order history, not merely Alexa endpoints. It is **not a live verification here**. Access to `/your-orders`, `/your-orders/orders`, and legacy `/gp/css/order-history` may differ because Amazon can require fresh authentication for individual pages. The human must verify the library's current Italian list URL and, separately, the legacy route before relying on renewal.
 
-The opt-in demo proxies the global PKCE login; only after the human completes it does it attempt registration and `/auth/token` exchange. It saves only refresh token, serial and domain to `device.json`, not customer metadata. Automatic renewal scheduling and deregistration are not implemented. If exchange fails after registration, the token/serial file remains so the device is identifiable; remove the device manually in Amazon after the experiment. LordHenry76 also labels its deregistration path unverified.[9]
+The login proxy proxies the global PKCE login; only after the human completes it does it attempt registration and `/auth/token` exchange (verified by a human on 2026-11-15). It saves only refresh token, serial and domain to `device.json`, not customer metadata. Renewal, the proactive job and best-effort deregistration are implemented in `DeviceAuthProvider`. If exchange fails after registration, the token/serial file remains so the device is identifiable. LordHenry76 labels its deregistration path unverified and this project has not verified it either.[9]
 
 ### amazon-auth session injection
 
@@ -68,54 +136,9 @@ The adapter ignores `AMAZON_*` environment configuration and never uses the home
 
 These comparisons are design judgments based on the inspected implementations and the supplied local observation, not measurements of production reliability.
 
-## Flow and backend contract
+## Superseded prototype contract
 
-All interface methods are **synchronous**:
-
-```python
-status() -> {"state": "ok" | "auth_required" | "in_progress",
-             "method": str, "expires_hint": str | None}
-start() -> str  # short-lived browser URL, no Amazon request
-logout() -> None  # local deletion only, never AmazonSession.logout()
-get_session() -> amazonorders.session.AmazonSession  # or AuthRequired
-```
-
-`CookieAuthProvider` owns storage and verification. `ProxyAuthProvider` adds the login transport. `get_session()` may make one read-only order-history verification; call it inside the backend's single request gate/thread, never on the async HTTP event loop. After restart, `status()` remains `auth_required` until that verification succeeds. On a later authentication failure the worker calls `invalidate()`, stops jobs and emits the existing auth-required event. Cookie expiry is not a reliable session-validity deadline, so `expires_hint` is `None`.
-
-Backend integration points:
-
-1. Construct one provider for `/data/amazonorders`; no global singleton/shared account jar.
-2. Route authenticated `POST api/auth/start` to `start()` and return its URL; serialize starts and enforce same-origin/CSRF checks.
-3. The prototype offers aiohttp `create_app()` / `handle(request)` plus `aclose()`. It is **not a FastAPI router**. A backend bridge must proxy HTTP to a private loopback aiohttp listener, preserve the configured external path prefix/Host, and never expose that listener as a host port. The bridge is not implemented in this slice.
-4. Derive the external Ingress prefix only from Supervisor-trusted metadata. Supervisor documents `X-Ingress-Path`, WebSocket support and allowing ingress connections only from its gateway address.[13]
-5. For the relay, do not activate the bridge on HA's normal origin until origin isolation passes. A sandbox without `allow-same-origin` may break Origin validation/CAPTCHA; the current demo intentionally rejects `Origin: null`. A separate isolated HTTPS origin avoids HA DOM access but needs explicit authentication and deployment plumbing.
-6. `logout()` clears local cookies/token and invalidates active login. The backend must also close/cancel the interactive transport with `await aclose()` before accepting another start. It does not revoke Amazon sessions/devices; tell the user how to revoke them.
-
-```mermaid
-sequenceDiagram
-    actor Human
-    participant UI as HA Ingress UI
-    participant Auth as AuthProvider
-    participant Browser as Isolated relay / remote Chromium
-    participant Amazon
-    participant Gate as Read-only request gate
-    Human->>UI: Start sign-in
-    UI->>Auth: start()
-    Auth-->>UI: Short-lived URL (no upstream request)
-    Human->>Browser: Open URL; type password and OTP
-    Browser->>Amazon: Human-driven sign-in and challenges
-    Amazon-->>Browser: Authenticated cookies / optional PKCE code
-    opt Explicit device-registration flag
-        Auth->>Amazon: Register virtual device; exchange refresh token
-        Amazon-->>Auth: Italian website cookies
-    end
-    Browser-->>Auth: Capture cookies
-    Auth->>Auth: Persist isolated private jar
-    Gate->>Amazon: Read last30 order list; no details
-    Amazon-->>Gate: Order-list pages or challenge
-    Gate-->>UI: Verified count / auth_required
-    Note over Browser,Amazon: If relay JS fails, stop retries and switch to real Chromium
-```
+Earlier drafts proposed a separate `CookieAuthProvider` / `ProxyAuthProvider` pair, a loopback aiohttp listener bridged by FastAPI, and a verified `get_session()` that issued an order-history request. Those are replaced by the single contract in *Production implementation*: no bridge (the proxy has its own port), no verification request in `get_session()` (a rejected session is detected by the sync request itself and renewed once), and `logout()` that also deregisters the device. Cookie expiry still is not a reliable deadline; `expires_hint` is informational.
 
 ## Remote-browser fallback under Ingress
 
@@ -136,7 +159,7 @@ Pi 5 capacity is **unmeasured**. Use 512 MiB–1 GiB of incremental RAM as an in
 
 ## Local prototype
 
-Files live under `amazon_orders/backend/src/amazon_orders_ha/auth/` and `backend/scripts/`. The demo is loopback-only on **http://localhost:8098**. It prints instructions to stderr and only the successful last-30-days count to stdout; it never prints order titles, IDs, names, addresses or raw exceptions. The list operation may use multiple pages, with a 20–40 second delay between requests. No detail pages are fetched. A missing order-history count marker fails closed rather than reporting a JavaScript challenge as zero orders.
+Files live under `amazon_orders/backend/src/amazon_orders_ha/auth/` and `backend/scripts/`. The demo is loopback-only on **http://localhost:8098**. `scripts/auth_refresh_check.py` repeats the verified renewal check. It prints instructions to stderr and only the successful last-30-days count to stdout; it never prints order titles, IDs, names, addresses or raw exceptions. The list operation may use multiple pages, with a 20–40 second delay between requests. No detail pages are fetched. A missing order-history count marker fails closed rather than reporting a JavaScript challenge as zero orders.
 
 From the repository root:
 
@@ -151,7 +174,7 @@ AUTH_DATA_DIR="$(mktemp -d)"
 
 Open localhost:8098 yourself. For the device experiment, use a **different empty temporary directory** and append `--register-device`. If the browser is on another machine, use an SSH local-port forward rather than binding this HTTP relay to the LAN. Do not use the localhost experiment from an HA iframe.
 
-Dependencies are pinned in `scripts/requirements-auth-demo.txt`: amazon-orders 6.0.0, amazon-auth 1.1.0, authcaptureproxy 1.3.9, httpx 0.28.1, aiohttp 3.13.3. The backend pyproject was not changed. Browser fallback would additionally require Playwright and Debian Chromium/Xvfb/x11vnc/noVNC/websockify; their image pins belong to the later container implementation.
+`aiohttp==3.13.3` and `authcaptureproxy==1.3.9` are now dependencies of the backend `pyproject.toml` (same pins as `scripts/requirements-auth-demo.txt`); the scripts run in the backend venv. Browser fallback would additionally require Playwright and Debian Chromium/Xvfb/x11vnc/noVNC/websockify; their image pins belong to the later container implementation.
 
 ## Security gates and known gaps
 
@@ -160,7 +183,7 @@ Dependencies are pinned in `scripts/requirements-auth-demo.txt`: amazon-orders 6
 - Auth requests use destination allowlists, TLS, Host/Origin checks, private upstream cookies and no inherited proxy environment. HA cookies, Authorization/Supervisor headers and ingress metadata are not forwarded. Cross-host credential-body redirects are blocked. These controls have synthetic coverage, not a security audit.
 - The adapter is deliberately stricter than AMP. Unlisted authentication/asset hosts or paths may break real login. Add only observed, reviewed destinations; never turn this into an arbitrary URL proxy.
 - There is no secure memory zeroization guarantee in Python, and a malicious upstream script could still navigate outside the relay. Do not store a HAR or browser profile for diagnosis.
-- Production cancellation/races, cookie-write atomicity under concurrent backend jobs, renewed-token revocation, backup policy and sandbox behavior still need implementation/validation. Do not run sync while changing session files. In particular, cancel/await an in-flight device-registration task before logout returns; a remote registration may already have created a device.
+- The login port serves plain HTTP (LAN/VPN only, see Decision). Backup policy for `<data>/auth/` (it holds a long-lived refresh token) and renewed-token revocation on a real device are not validated. Do not run sync while changing session files. In particular, cancel/await an in-flight device-registration task before logout returns; a remote registration may already have created a device.
 - Test only one interactive attempt at a time. Stop after a repeated challenge; no unattended password/OTP retry loops.
 - Rollback is local: stop the demo, delete only its temporary data directory, and remove the optional experimental device in Amazon's account settings. Do not touch the user's existing amazon-orders jar.
 
@@ -170,12 +193,14 @@ Completed without Amazon access: synthetic cookie conversion/domain filtering; p
 
 The human executes the remaining checks:
 
-- [ ] Start the ordinary demo in a new empty directory. Verify no Amazon navigation until clicking Start.
-- [ ] Enter email, password and OTP yourself. Test one wrong OTP, then a correct current OTP; no saved credential/TOTP secret should be required. Do not send credentials to an agent.
+- [x] Start the ordinary demo in a new empty directory. Verify no Amazon navigation until clicking Start. (human, 2026-11-15)
+- [x] Enter email, password and OTP yourself. Test one wrong OTP, then a correct current OTP; no saved credential/TOTP secret should be required. Do not send credentials to an agent.
 - [ ] If shown, complete CAPTCHA/JS in the browser. Record only the challenge category and sanitized success/failure; do not export a HAR, raw HTML or logs.
 - [ ] On success, compare stdout's last30 count with Amazon manually. Confirm no order details or personal data appear in output. Verify jar file permissions without displaying its contents.
 - [ ] Test cookie reuse/restart through the backend gate, expiration, logout, failed network, cancellation and two competing starts. Failed/challenged verification must stop sync and must not become an empty successful history.
-- [ ] In a separate opt-in run, confirm the new virtual device appears; verify Italian cookie exchange and a fresh last30 list. Later, test renewal after restarting without a password/OTP, and revoke the device to verify auth-required behavior. Renewal execution needs the later backend implementation.
+- [x] Device registration, Italian cookie exchange, renewal without password/OTP and a fresh last30 list (human, 2026-11-15, `auth_refresh_check.py`).
+- [ ] Revoke the device in Amazon and confirm the add-on reports `auth_required` (unit-tested with a mocked refusal only); verify the deregistration endpoint actually removes the device.
+- [ ] Run the production flow inside the HA add-on: LAN link built from the Ingress host, port 8098 exposed, phone browser, renewal after an add-on restart.
 - [ ] Separately verify Italian `/your-orders` and `/gp/css/order-history` access; do not infer legacy access from Alexa API success.
 - [ ] Implement/test noVNC on actual HA Ingress: dynamic prefix changes, wss forwarding, Supervisor-only access, auth expiry, logout/timeout cleanup, iOS/Android keyboard, rotation, paste/zoom and touch CAPTCHA.
 - [ ] Prove no Amazon JavaScript can access HA parent DOM/storage or invoke HA-origin APIs. If sandboxed relay CAPTCHA needs `allow-same-origin`, reject that deployment and use noVNC or a separate origin.

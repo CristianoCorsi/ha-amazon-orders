@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -14,7 +15,7 @@ from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import __version__, repo
-from .auth_provider import AuthRequired
+from .auth import AuthRequired
 from .ics import build_ics
 from .service import BackgroundRunner, Runtime
 
@@ -143,26 +144,48 @@ def create_app(rt: Runtime, background: bool = False) -> FastAPI:
         }
 
     # ---- auth
+    def _browser_host(request: Request) -> str | None:
+        """Host (with port) the user's browser used for Home Assistant: X-Forwarded-Host, else Host."""
+        fwd = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
+        return fwd or request.headers.get("host") or None
+
+    def _same_origin(request: Request) -> None:
+        """Reject cross-site POSTs: Origin (when sent) must be the host the browser used."""
+        origin = request.headers.get("origin")
+        if origin is None:
+            return
+        allowed = {h for h in (request.headers.get("x-forwarded-host", "").split(",")[0].strip(),
+                               request.headers.get("host", "")) if h}
+        if origin == "null" or urlsplit(origin).netloc not in allowed:
+            raise ApiError(403, "forbidden", "cross-origin request refused")
+
     @app.get("/api/auth/status")
     def auth_status():
         st = dict(rt.auth.status())
         if rt.engine.status()["auth"]["state"] == "auth_required" and st.get("state") == "ok":
             st["state"] = "auth_required"
+        if st.get("state") != "in_progress":
+            st.pop("login_url", None)
         return st
 
     @app.post("/api/auth/start")
-    def auth_start():
+    def auth_start(request: Request):
+        _same_origin(request)
         try:
-            url = rt.auth.start()
+            url = rt.auth.start(host=_browser_host(request))
         except AuthRequired as e:
             raise ApiError(501, "auth_unavailable", str(e) or "sign-in flow not available") from e
-        rt.engine.clear_auth_required()
         return {"url": url}
 
     @app.post("/api/auth/logout")
-    def auth_logout():
+    def auth_logout(request: Request):
+        _same_origin(request)
         rt.auth.logout()
-        return {"ok": True}
+        out: dict[str, Any] = {"ok": True}
+        remote = getattr(rt.auth, "last_logout_remote", None)
+        if remote is not None:
+            out["deregistered"] = bool(remote)
+        return out
 
     # ---- orders / items
     @app.get("/api/orders")

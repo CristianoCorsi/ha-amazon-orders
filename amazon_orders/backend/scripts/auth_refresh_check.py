@@ -19,8 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from auth_proxy_demo import count_recent_orders  # noqa: E402
 
-from amazon_orders_ha.auth import CookieAuthProvider  # noqa: E402
-from amazon_orders_ha.auth.device import exchange_cookie_records, token_form  # noqa: E402
+from amazon_orders_ha.auth import CookieStore  # noqa: E402
+from amazon_orders_ha.auth.device import TokenRejected, TokenTransient, exchange_refresh_token  # noqa: E402
 
 
 def main() -> int:
@@ -37,14 +37,15 @@ def main() -> int:
     import httpx
 
     with httpx.Client(trust_env=False, timeout=30, follow_redirects=False) as client:
-        response = client.post("https://api.amazon.com/auth/token", data=token_form(device["refresh_token"]))
-    if response.status_code != 200:
-        print(f"Token exchange failed with HTTP {response.status_code}", file=sys.stderr)
-        return 1
+        try:
+            records = exchange_refresh_token(client, device["refresh_token"], device.get("domain", "amazon.it"))
+        except (TokenRejected, TokenTransient) as exc:
+            print(f"Token exchange failed: {exc}", file=sys.stderr)
+            return 1
 
-    provider = CookieAuthProvider(args.data_dir)
-    provider.import_cookies(exchange_cookie_records(response.json()))
-    print(count_recent_orders(provider), flush=True)
+    store = CookieStore(args.data_dir)
+    store.import_cookies(records)
+    print(count_recent_orders(store), flush=True)
     print("Renewal check succeeded: fresh cookies obtained without a login.", file=sys.stderr)
     return 0
 

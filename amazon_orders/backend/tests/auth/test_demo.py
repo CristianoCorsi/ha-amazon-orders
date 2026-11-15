@@ -11,9 +11,9 @@ class DemoTests(unittest.TestCase):
     def test_count_empty_history_and_reject_challenge(self):
         from requests import Response
 
-        from amazon_orders_ha.auth import AuthRequired, ProxyAuthProvider
+        from amazon_orders_ha.auth import AuthRequired, CookieStore
 
-        script = Path(__file__).resolve().parents[4] / "scripts" / "auth_proxy_demo.py"
+        script = Path(__file__).resolve().parents[2] / "scripts" / "auth_proxy_demo.py"
         spec = importlib.util.spec_from_file_location("auth_demo_under_test", script)
         assert spec is not None and spec.loader is not None
         demo = importlib.util.module_from_spec(spec)
@@ -30,7 +30,7 @@ class DemoTests(unittest.TestCase):
             return response
 
         with tempfile.TemporaryDirectory() as directory:
-            provider = ProxyAuthProvider(Path(directory))
+            provider = CookieStore(Path(directory))
             provider.import_cookies([{"name": "x-acbit", "value": "synthetic", "domain": ".amazon.it"}])
             with patch("requests.sessions.Session.request", synthetic_request):
                 self.assertEqual(demo.count_recent_orders(provider), 0)
@@ -39,4 +39,4 @@ class DemoTests(unittest.TestCase):
                 html = '<form id="challenge">Enable JavaScript</form>'
                 with self.assertRaises(AuthRequired):
                     demo.count_recent_orders(provider)
-            provider.logout()
+            provider.clear()

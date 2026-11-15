@@ -1,6 +1,28 @@
-"""Backend imports only these providers; proxy dependencies load on demand."""
+"""Amazon authentication: one AuthProvider contract, a production DeviceAuthProvider, dev providers.
 
-from .base import AuthProvider, AuthRequired, AuthStatus, CookieAuthProvider
-from .proxy import ProxyAuthProvider
+Heavy dependencies (aiohttp, authcaptureproxy) are imported lazily when a login actually starts.
+"""
 
-__all__ = ["AuthProvider", "AuthRequired", "AuthStatus", "CookieAuthProvider", "ProxyAuthProvider"]
+from .base import (
+    AuthProvider,
+    AuthRequired,
+    AuthStatus,
+    AuthTemporarilyUnavailable,
+    CookieStore,
+    RenewableAuth,
+)
+from .local import CookieFileAuthProvider, DevAuthProvider
+from .provider import DeviceAuthProvider, create_auth_provider
+
+__all__ = [
+    "AuthProvider",
+    "AuthRequired",
+    "AuthStatus",
+    "AuthTemporarilyUnavailable",
+    "CookieFileAuthProvider",
+    "CookieStore",
+    "DevAuthProvider",
+    "DeviceAuthProvider",
+    "RenewableAuth",
+    "create_auth_provider",
+]

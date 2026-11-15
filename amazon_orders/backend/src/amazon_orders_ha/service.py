@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import logging
 import os
 import threading
@@ -11,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 
-from .auth_provider import AuthProvider, CookieFileAuthProvider, DevAuthProvider
+from .auth import AuthProvider, CookieFileAuthProvider, DevAuthProvider, create_auth_provider
 from .config import Settings
 from .db import Database
 from .ha import HAEvents, HAIntegration, MqttPublisher
@@ -21,17 +20,12 @@ log = logging.getLogger(__name__)
 
 
 def make_auth_provider(settings: Settings) -> AuthProvider:
-    """Use the ``auth`` subpackage when it provides ``create_auth_provider``; else the cookie file."""
+    """DeviceAuthProvider; ``AMAZON_ORDERS_DEV_AUTH=1`` and ``AMAZON_ORDERS_AUTH=cookie_file`` are dev-only."""
     if os.environ.get("AMAZON_ORDERS_DEV_AUTH") == "1":
         return DevAuthProvider()
-    try:
-        mod = importlib.import_module("amazon_orders_ha.auth")
-        factory = getattr(mod, "create_auth_provider", None)
-        if factory:
-            return factory(settings)
-    except ImportError:
-        pass
-    return CookieFileAuthProvider(settings.data_dir, settings.options.domain)
+    if os.environ.get("AMAZON_ORDERS_AUTH") == "cookie_file":
+        return CookieFileAuthProvider(settings.data_dir, settings.options.domain)
+    return create_auth_provider(settings)
 
 
 @dataclass
@@ -67,12 +61,14 @@ class BackgroundRunner:
 
     TICK_SECONDS = 30
     HOURLY = 3600
+    RENEW_CHECK = 3600  # the provider itself decides whether its cookies are older than 24 h
 
     def __init__(self, rt: Runtime):
         self.rt = rt
         self.thread: threading.Thread | None = None
         self.wake = threading.Event()
         self._last_hourly = 0.0
+        self._last_renew = -1e9
 
     def start(self) -> None:
         self.thread = threading.Thread(target=self._loop, name="sync-runner", daemon=True)
@@ -84,6 +80,9 @@ class BackgroundRunner:
         if self.thread:
             self.thread.join(timeout=10)
         self.rt.integration.mqtt.close()
+        close = getattr(self.rt.auth, "close", None)
+        if close:
+            close()
 
     def _loop(self) -> None:
         import time
@@ -91,6 +90,7 @@ class BackgroundRunner:
         eng = self.rt.engine
         while not eng.stop.is_set():
             try:
+                self._renew_cookies()
                 eng.tick()
                 if time.monotonic() - self._last_hourly >= self.HOURLY:
                     self._last_hourly = time.monotonic()
@@ -99,3 +99,16 @@ class BackgroundRunner:
                 log.exception("scheduler tick failed")
             self.wake.wait(self.TICK_SECONDS)
             self.wake.clear()
+
+    def _renew_cookies(self) -> None:
+        """Proactive cookie renewal (device auth): cheap local check hourly, Amazon call only when due."""
+        import time
+
+        renew = getattr(self.rt.auth, "renew_if_due", None)
+        if renew is None or time.monotonic() - self._last_renew < self.RENEW_CHECK:
+            return
+        self._last_renew = time.monotonic()
+        try:
+            renew()
+        except Exception:
+            log.exception("proactive cookie renewal failed")

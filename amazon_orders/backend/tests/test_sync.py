@@ -249,3 +249,69 @@ def test_backfill_control_idempotent(make_env, action):
     assert env.engine.backfill_control(action)["status"] in ("running", "paused")
     with pytest.raises(ValueError):
         env.engine.backfill_control("bogus")
+
+
+def test_auth_rejection_triggers_one_renewal_and_retry(make_env):
+    env = make_env(orders())
+    env.client.fail_page = AmazonOrdersAuthRedirectError("Amazon redirected to login")
+    renewals = []
+
+    def renew():
+        renewals.append(1)
+        env.client.fail_page = None  # fresh cookies: the retried request succeeds
+        return True
+
+    env.auth.renew_session = renew
+    assert env.engine.run_recent()["new"] == 3
+    assert renewals == [1] and env.sent == []
+    assert env.engine.status()["state"] != "auth_required"
+
+
+def test_auth_rejection_after_renewal_still_requires_login(make_env):
+    env = make_env(orders())
+    env.client.fail_page = AmazonOrdersAuthRedirectError("Amazon redirected to login")
+    calls = []
+    env.auth.renew_session = lambda: calls.append(1) or True  # renewed, but Amazon still refuses
+    assert env.engine.run_recent()["aborted"] == "auth"
+    assert calls == [1]  # exactly one renewal per request
+    assert [t for t, _ in env.sent] == ["amazon_orders_auth_required"]
+
+
+def test_failed_renewal_requires_login(make_env):
+    env = make_env(orders())
+    env.client.fail_page = AmazonOrdersAuthRedirectError("Amazon redirected to login")
+    env.auth.renew_session = lambda: False
+    assert env.engine.run_recent()["aborted"] == "auth"
+
+
+def test_transient_renewal_failure_backs_off_without_auth_required(make_env):
+    from amazon_orders_ha.auth import AuthTemporarilyUnavailable
+
+    env = make_env(orders())
+
+    def factory():
+        raise AuthTemporarilyUnavailable("cookie renewal failed; will retry later")
+
+    env.engine.client_factory = factory
+    assert env.engine.run_recent()["aborted"] == "auth_unavailable"
+    st = env.engine.status()
+    assert st["state"] == "cooldown" and st["auth"]["state"] == "ok"
+    assert [t for t, _ in env.sent] == ["amazon_orders_sync_error"]
+
+
+def test_tick_skips_while_login_in_progress_and_resumes_after(make_env):
+    env = make_env(orders())
+    env.auth.ok = False
+    env.engine.tick()  # no session -> auth_required flag set
+    assert env.engine.status()["state"] == "auth_required"
+    env.sent.clear()
+    env.auth.ok = False
+    env.auth.status = lambda: {"state": "in_progress", "method": None, "expires_hint": None, "login_url": "x"}
+    assert env.engine.tick() is None and env.sent == []
+    # login finished: provider reports it once, the engine clears the stop and refreshes
+    env.auth.ok = True
+    env.auth.status = lambda: {"state": "ok", "method": "device", "expires_hint": None}
+    env.auth.pop_login_completed = iter([True, False]).__next__
+    assert env.engine.tick() == "recent"
+    assert env.engine.status()["auth"]["state"] == "ok"
+

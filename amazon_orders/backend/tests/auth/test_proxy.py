@@ -10,7 +10,8 @@ class ProxyTests(unittest.IsolatedAsyncioTestCase):
         import httpx
         from aiohttp.test_utils import TestClient, TestServer
 
-        from amazon_orders_ha.auth import ProxyAuthProvider
+        from amazon_orders_ha.auth import CookieStore
+        from amazon_orders_ha.auth.proxy import LoginProxy
 
         calls = []
 
@@ -24,8 +25,11 @@ class ProxyTests(unittest.IsolatedAsyncioTestCase):
             )
 
         with tempfile.TemporaryDirectory() as d:
-            p = ProxyAuthProvider(Path(d), "http://localhost:8098/", transport=httpx.MockTransport(upstream))
-            url = p.start()
+            p = LoginProxy(
+                "http://localhost:8098/", CookieStore(Path(d)), register_device=False,
+                transport=httpx.MockTransport(upstream),
+            )
+            url = p.url
             client = TestClient(TestServer(p.create_app()))
             await client.start_server()
             try:
@@ -81,7 +85,8 @@ class ProxyTests(unittest.IsolatedAsyncioTestCase):
         import httpx
         from aiohttp.test_utils import TestClient, TestServer
 
-        from amazon_orders_ha.auth import ProxyAuthProvider
+        from amazon_orders_ha.auth import CookieStore
+        from amazon_orders_ha.auth.proxy import LoginProxy
 
         def upstream(request):
             return httpx.Response(
@@ -95,15 +100,19 @@ class ProxyTests(unittest.IsolatedAsyncioTestCase):
             )
 
         with tempfile.TemporaryDirectory() as d:
-            p = ProxyAuthProvider(Path(d), "http://localhost:8098/", transport=httpx.MockTransport(upstream))
-            path = urlsplit(p.start()).path
+            store = CookieStore(Path(d))
+            p = LoginProxy(
+                "http://localhost:8098/", store, register_device=False,
+                transport=httpx.MockTransport(upstream), on_cookies=store.import_cookies,
+            )
+            path = urlsplit(p.url).path
             client = TestClient(TestServer(p.create_app()))
             await client.start_server()
             try:
                 response = await client.get(path, headers={"Host": "localhost:8098", "Sec-Fetch-Mode": "navigate"})
-                self.assertIn("captured", await response.text())
+                self.assertIn("Signed in", await response.text())
                 self.assertTrue(p.captured.is_set())
-                self.assertTrue(p.cookie_path.exists())
+                self.assertTrue(store.cookie_path.exists())
                 response = await client.get(path, headers={"Host": "localhost:8098"})
                 self.assertEqual(response.status, 410)
             finally:

@@ -36,6 +36,8 @@ class Options:
     default_warranty_months: int = 24
     mqtt: MqttOptions = field(default_factory=MqttOptions)
     domain: str = "amazon.it"
+    login_port: int = 8098
+    login_host: str = ""
     log_level: str = "info"
 
     @classmethod
@@ -59,6 +61,9 @@ class Options:
         )
         adv = raw.get("advanced") or {}
         o.domain = str(adv.get("domain") or raw.get("domain") or o.domain)
+        port = int(_num(raw.get("login_port"), o.login_port))
+        o.login_port = port if 1 <= port <= 65535 else o.login_port
+        o.login_host = str(raw.get("login_host") or adv.get("login_host") or "").strip()
         o.log_level = str(raw.get("log_level") or o.log_level).lower()
         return o
 

@@ -1,69 +1,66 @@
-"""Human-operated authcaptureproxy adapter. No network until a browser request."""
+"""Human-operated authcaptureproxy adapter (async, aiohttp). No network until a browser request.
+
+``LoginProxy`` owns one login attempt: a random capability path, Host/Origin checks, a deadline. It knows nothing
+about storage: results are handed to callbacks. ``server.LoginServer`` runs it on its own port.
+"""
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 import secrets
 import time
-from pathlib import Path
+from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from .base import AuthStatus, CookieAuthProvider
+from .base import CookieStore
 from .cookies import cookiejar_records
-from .urls import checked_https, upstream_url
+from .urls import checked_https, split_host, upstream_url
+
+PATH_PREFIX = "auth/proxy/"
 
 
-class ProxyAuthProvider(CookieAuthProvider):
-    method = "login_proxy"
-
+class LoginProxy:
     def __init__(
         self,
-        data_dir: Path,
-        public_base_url: str = "http://localhost:8098/",
-        domain: str = "amazon.it",
+        public_base_url: str,
+        store: CookieStore,
         *,
-        register_device: bool = False,
+        register_device: bool = True,
         transport: Any = None,
-        lifetime: int = 900,
+        api_transport: Any = None,
+        lifetime: float = 900,
+        on_device: Callable[[str, str, str], None] | None = None,
+        on_cookies: Callable[[list[dict[str, Any]]], None] | None = None,
+        on_captured: Callable[[], Awaitable[bool]] | None = None,
     ) -> None:
-        super().__init__(data_dir, domain)
+        import asyncio
+
         self.public_base_url = public_base_url.rstrip("/") + "/"
         parts = urlsplit(self.public_base_url)
         if parts.scheme not in ("https", "http") or not parts.netloc or parts.query or parts.fragment:
             raise ValueError("Invalid public base URL")
-        if parts.scheme == "http" and parts.hostname not in ("localhost", "127.0.0.1", "::1"):
-            raise ValueError("Non-loopback login requires HTTPS")
+        self.store = store
+        self.domain = store.domain
         self.register_device = register_device
         self.transport = transport
+        self.api_transport = api_transport
         self.lifetime = lifetime
+        self.on_device = on_device
+        self.on_cookies = on_cookies
+        self.on_captured = on_captured
         self.proxy: Any = None
         self.device: Any = None
         self.captured = asyncio.Event()
-        self._deadline = 0.0
-        self._url: str | None = None
+        self.url = self.public_base_url + PATH_PREFIX + secrets.token_urlsafe(32) + "/"
+        self.deadline = time.monotonic() + lifetime
         self._lock = asyncio.Lock()
-        self._in_progress = False
+        self._active = True
+        self._finishing = False
 
-    def start(self) -> str:
-        if self._in_progress and time.monotonic() < self._deadline:
-            assert self._url is not None
-            return self._url
-        if self.proxy is not None:
-            raise RuntimeError("Close the previous proxy with await aclose() before restarting")
-        self._url = self.public_base_url + "auth/proxy/" + secrets.token_urlsafe(32) + "/"
-        self._deadline = time.monotonic() + self.lifetime
-        self._in_progress = True
-        self.captured.clear()
-        return self._url
-
-    def status(self) -> AuthStatus:
-        status = super().status()
-        if self._in_progress and time.monotonic() < self._deadline:
-            status["state"] = "in_progress"
-        return status
+    @property
+    def active(self) -> bool:
+        return self._active and not self._finishing and time.monotonic() < self.deadline
 
     async def _make_proxy(self) -> None:
         import httpx
@@ -73,9 +70,8 @@ class ProxyAuthProvider(CookieAuthProvider):
 
         # Upstream DEBUG output includes passwords, headers and response bodies.
         # Library consumers must not override this logger level during login.
-        logging.getLogger("authcaptureproxy").setLevel(logging.CRITICAL + 1)
-        logging.getLogger("httpx").setLevel(logging.CRITICAL + 1)
-        logging.getLogger("httpcore").setLevel(logging.CRITICAL + 1)
+        for name in ("authcaptureproxy", "httpx", "httpcore"):
+            logging.getLogger(name).setLevel(logging.CRITICAL + 1)
         site = "amazon.com" if self.register_device else self.domain
         inner = self.transport or httpx.AsyncHTTPTransport(retries=0)
 
@@ -91,8 +87,7 @@ class ProxyAuthProvider(CookieAuthProvider):
             async def aclose(self):
                 await inner.aclose()
 
-        base = self._url
-        assert base is not None
+        base = self.url
 
         class HumanProxy(AuthCaptureProxy):
             async def modify_headers(self, target, request):
@@ -125,7 +120,7 @@ class ProxyAuthProvider(CookieAuthProvider):
         client = httpx.AsyncClient(
             transport=RestrictedTransport(), trust_env=False, timeout=httpx.Timeout(60, connect=30), max_redirects=8
         )
-        session = self.new_session()
+        session = self.store.new_session()
         try:
             constants = session.config.constants
             target = str(URL(constants.SIGN_IN_URL).with_query(constants.SIGN_IN_QUERY_PARAMS))
@@ -138,12 +133,12 @@ class ProxyAuthProvider(CookieAuthProvider):
             target = self.device.signin_url
             for name, value in self.device.app_cookies().items():
                 client.cookies.set(name, value, domain=".amazon.com", path="/")
-        self.proxy = HumanProxy(URL(self._url), URL(target), session=client)
+        self.proxy = HumanProxy(URL(self.url), URL(target), session=client)
         self.proxy.interceptors = [AmazonWAFInterceptor()]
         self.proxy.tests = {"capture": self._capture}
 
     async def _capture(self, response, data, query):
-        if not self._in_progress or time.monotonic() >= self._deadline:
+        if not self.active:
             return None
         if self.register_device:
             values = parse_qs(urlsplit(str(response.url)).query)
@@ -156,49 +151,52 @@ class ProxyAuthProvider(CookieAuthProvider):
             # x-acbit is amazon-auth 1.1.0's authenticated marker for amazon.it.
             if not any(c["name"] == "x-acbit" for c in records):
                 return None
-            self.import_cookies(records)
-        self._in_progress = False
+            if self.on_cookies:
+                self.on_cookies(records)
+        self._finishing = True
+        ok = True
+        if self.on_captured:
+            try:
+                ok = await self.on_captured()
+            except Exception:
+                ok = False
         self.captured.set()
-        return "<h1>Session captured</h1><p>Read-only order verification is running. Close this tab.</p>"
+        if ok:
+            return "<h1>Signed in</h1><p>You can close this tab and return to Home Assistant.</p>"
+        return (
+            "<h1>Signed in, but the session could not be activated</h1>"
+            "<p>Return to Home Assistant and check the status.</p>"
+        )
 
     async def _register(self, code: str) -> None:
         import httpx
-        from amazonauth.util import write_private_file
 
-        from .device import exchange_cookie_records, token_form
+        from .device import API_BASE
 
-        # Explicit flag and completed human login are both prerequisites.
-        async with httpx.AsyncClient(trust_env=False, timeout=30, follow_redirects=False) as client:
-            response = await client.post(
-                "https://api.amazon.com/auth/register", json=self.device.registration_body(code)
-            )
+        # Explicit device-registration mode and a completed human login are both prerequisites.
+        async with httpx.AsyncClient(
+            transport=self.api_transport, trust_env=False, timeout=30, follow_redirects=False
+        ) as client:
+            response = await client.post(API_BASE + "/auth/register", json=self.device.registration_body(code))
             response.raise_for_status()
             token = response.json()["response"]["success"]["tokens"]["bearer"]["refresh_token"]
-            # Save immediately: if cookie exchange fails the registered device
-            # must still be identifiable and revocable by the user.
-            write_private_file(
-                str(self.data_dir / "device.json"),
-                json.dumps(
-                    {
-                        "refresh_token": token,
-                        "device_serial": self.device.serial,
-                        "domain": self.domain,
-                    }
-                ),
-            )
-            response = await client.post("https://api.amazon.com/auth/token", data=token_form(token))
-            response.raise_for_status()
-            self.import_cookies(exchange_cookie_records(response.json()))
+        # Save immediately: if the later cookie exchange fails, the registered device must stay identifiable.
+        if self.on_device:
+            self.on_device(token, self.device.serial, self.domain)
         self.device = None
 
     async def handle(self, request):
         from aiohttp import web
 
-        if not self._in_progress or self.captured.is_set() or time.monotonic() >= self._deadline or self._url is None:
+        if not self.active:
             return web.Response(status=410, text="Login expired or completed. Start again.")
         # A random path is a short-lived bearer capability, not a public proxy.
         expected = urlsplit(self.public_base_url)
-        if request.host != expected.netloc:
+        try:
+            host = split_host(request.host)[0]
+        except ValueError:
+            return web.Response(status=403, text="Unexpected Host")
+        if host != expected.hostname:
             return web.Response(status=403, text="Unexpected Host")
         origin = request.headers.get("Origin")
         # Browsers send "Origin: null" on same-origin form POSTs when the page's
@@ -213,7 +211,7 @@ class ProxyAuthProvider(CookieAuthProvider):
             return web.Response(status=405)
         site = "amazon.com" if self.register_device else self.domain
         try:
-            target = upstream_url(request.raw_path, self._url, site)
+            target = upstream_url(request.raw_path, self.url, site)
             parts = urlsplit(target)
             if parts.hostname == "www." + site and not (
                 parts.path == "/" or parts.path.startswith(("/ap/", "/ax/", "/aaut/", "/cvf/", "/errors/"))
@@ -222,7 +220,7 @@ class ProxyAuthProvider(CookieAuthProvider):
         except ValueError:
             return web.Response(status=403, text="Destination not allowed")
         async with self._lock:
-            if self.captured.is_set():
+            if not self.active:
                 return web.Response(status=410, text="Login completed")
             if self.proxy is None:
                 await self._make_proxy()
@@ -243,7 +241,7 @@ class ProxyAuthProvider(CookieAuthProvider):
             except Exception:
                 return web.Response(
                     status=502,
-                    text="Login relay failed. Do not retry repeatedly; use the remote-browser fallback.",
+                    text="Login relay failed. Do not retry repeatedly.",
                     headers={"Cache-Control": "no-store"},
                 )
             finally:
@@ -251,7 +249,7 @@ class ProxyAuthProvider(CookieAuthProvider):
                 self.proxy.query.clear()
                 self.proxy.init_query.clear()
                 self.proxy.last_resp = None
-                if self.captured.is_set():
+                if self._finishing and self.proxy is not None:
                     self.proxy.session.cookies.clear()
 
     def create_app(self):
@@ -261,20 +259,13 @@ class ProxyAuthProvider(CookieAuthProvider):
         app.router.add_route("*", "/{tail:.*}", self.handle)
         return app
 
-    def logout(self) -> None:
-        self._in_progress = False
-        self._deadline = 0
+    async def aclose(self) -> None:
+        self._active = False
         self.device = None
         if self.proxy is not None:
             self.proxy.session.cookies.clear()
             self.proxy.data.clear()
             self.proxy.query.clear()
             self.proxy.last_resp = None
-        super().logout()
-
-    async def aclose(self) -> None:
-        self._in_progress = False
-        self.device = None
-        if self.proxy is not None:
             await self.proxy.session.aclose()
             self.proxy = None

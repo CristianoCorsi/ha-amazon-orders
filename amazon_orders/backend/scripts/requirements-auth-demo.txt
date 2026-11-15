@@ -1,4 +1,5 @@
-# Standalone auth experiment only. Backend pyproject.toml is owned elsewhere.
+# Standalone auth experiment only. The backend pyproject.toml now pins the same versions
+# (aiohttp, authcaptureproxy), so `pip install -e amazon_orders/backend` is enough for these scripts.
 amazon-orders==6.0.0
 amazon-auth==1.1.0
 authcaptureproxy==1.3.9

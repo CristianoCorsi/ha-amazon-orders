@@ -45,3 +45,20 @@ class URLTests(unittest.TestCase):
         ):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 upstream_url(path, base, "amazon.it")
+
+
+class HostTests(unittest.TestCase):
+    def test_split_host_strips_port_and_validates(self):
+        from amazon_orders_ha.auth.urls import is_lan_host, split_host
+
+        self.assertEqual(split_host("HA.local:8123"), ("ha.local", 8123))
+        self.assertEqual(split_host("[fd00::1]:8123"), ("fd00::1", 8123))
+        self.assertEqual(split_host("a.lan, b.example.org"), ("a.lan", None))
+        for bad in ("", "a b", "a/b", "u@h", "h?x", "h:99999999", "-bad-.lan"):
+            with self.subTest(bad), self.assertRaises(ValueError):
+                split_host(bad)
+        for lan in ("localhost", "ha.local", "192.168.0.4", "10.1.2.3", "127.0.0.1", "fd00::1", "nas", "x.home.arpa"):
+            self.assertTrue(is_lan_host(lan), lan)
+        for wan in ("example.com", "8.8.8.8", "2606:4700::1"):
+            self.assertFalse(is_lan_host(wan), wan)
+

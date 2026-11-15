@@ -231,6 +231,41 @@ def test_auth_endpoints(client, seeded_rt):
     assert get(client, "/api/auth/status").json()["state"] == "auth_required"
 
 
+def test_auth_start_passes_browser_host_through_ingress(client, seeded_rt):
+    """Under Ingress the Supervisor sets X-Forwarded-Host to the host the browser used; Host is internal."""
+    ingress = {"X-Forwarded-Host": "homeassistant.local:8123", "X-Ingress-Path": "/api/hassio_ingress/tok",
+               "Origin": "http://homeassistant.local:8123"}
+    assert client.post("/api/auth/start", headers=ingress).status_code == 200
+    assert client.post("/api/auth/start", headers={"Host": "192.168.1.5:8099"}).status_code == 200
+    assert seeded_rt.auth.start_hosts == ["homeassistant.local:8123", "192.168.1.5:8099"]
+
+
+def test_auth_post_rejects_cross_origin(client, seeded_rt):
+    for path in ("/api/auth/start", "/api/auth/logout"):
+        r = client.post(path, headers={"Origin": "https://evil.example", "X-Forwarded-Host": "homeassistant.local"})
+        assert r.status_code == 403 and r.json()["error"]["code"] == "forbidden"
+    assert seeded_rt.auth.start_hosts == [] and not seeded_rt.auth.logged_out
+
+
+def test_auth_start_unavailable_is_501(client, seeded_rt):
+    from amazon_orders_ha.auth import AuthRequired
+
+    def boom(host=None):
+        raise AuthRequired("LAN only")
+
+    seeded_rt.auth.start = boom
+    r = client.post("/api/auth/start")
+    assert r.status_code == 501 and r.json()["error"] == {"code": "auth_unavailable", "message": "LAN only"}
+
+
+def test_auth_status_hides_login_url_unless_in_progress(client, seeded_rt):
+    seeded_rt.auth.status = lambda: {"state": "ok", "method": "device", "expires_hint": None, "login_url": "x"}
+    assert "login_url" not in get(client, "/api/auth/status").json()
+    seeded_rt.auth.status = lambda: {"state": "in_progress", "method": None, "expires_hint": None,
+                                     "login_url": "http://h:8098/auth/proxy/t/"}
+    assert get(client, "/api/auth/status").json()["login_url"] == "http://h:8098/auth/proxy/t/"
+
+
 def test_calendar_ics_endpoint(client):
     r = get(client, "/calendar.ics")
     assert r.headers["content-type"].startswith("text/calendar")

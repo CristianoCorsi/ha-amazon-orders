@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import html
+import json
 import logging
 import os
 import random
@@ -20,15 +21,16 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from amazon_orders_ha.auth import AuthRequired, CookieAuthProvider, ProxyAuthProvider  # noqa: E402
+from amazon_orders_ha.auth import AuthRequired, CookieStore  # noqa: E402
+from amazon_orders_ha.auth.proxy import LoginProxy  # noqa: E402
 
 
-def count_recent_orders(provider: CookieAuthProvider) -> int:
+def count_recent_orders(store: CookieStore) -> int:
     """One last-30-days list operation, no details, 20–40s between pages."""
     from amazonauth.util import select_one
     from amazonorders.orders import AmazonOrders
 
-    session = provider.new_session()
+    session = store.new_session()
     if not session.auth_cookies_stored():
         session.session.close()
         raise AuthRequired("Missing auth cookies")
@@ -58,13 +60,9 @@ def count_recent_orders(provider: CookieAuthProvider) -> int:
     session.is_authenticated = True  # The following GET validates, never calls login().
     try:
         orders = AmazonOrders(session).get_orders(time_filter="last30", full_details=False, keep_paging=True)
-        provider._session = session
-        provider._verified = True
         return len(orders)
-    except Exception:
+    finally:
         session.session.close()
-        provider.invalidate()
-        raise
 
 
 async def serve(args: argparse.Namespace) -> None:
@@ -76,10 +74,41 @@ async def serve(args: argparse.Namespace) -> None:
         raise ValueError("--data-dir must be a new or empty temporary directory")
     data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     data_dir.chmod(0o700)
-    provider = ProxyAuthProvider(
-        data_dir, "http://localhost:8098/", register_device=args.register_device, lifetime=args.timeout
+    store = CookieStore(data_dir)
+
+    def save_device(token: str, serial: str, domain: str) -> None:
+        from amazonauth.util import write_private_file
+
+        write_private_file(
+            str(data_dir / "device.json"),
+            json.dumps({"refresh_token": token, "device_serial": serial, "domain": domain}),
+        )
+        saved["token"] = token
+
+    async def exchange() -> bool:
+        import httpx
+
+        from amazon_orders_ha.auth.device import exchange_refresh_token
+
+        def work() -> None:
+            with httpx.Client(trust_env=False, timeout=30, follow_redirects=False) as client:
+                store.import_cookies(exchange_refresh_token(client, saved["token"], store.domain))
+
+        if args.register_device:
+            await asyncio.to_thread(work)
+        return True
+
+    saved: dict[str, str] = {}
+    provider = LoginProxy(
+        "http://localhost:8098/",
+        store,
+        register_device=args.register_device,
+        lifetime=args.timeout,
+        on_device=save_device,
+        on_cookies=store.import_cookies,
+        on_captured=exchange,
     )
-    url = provider.start()
+    url = provider.url
     app = web.Application(client_max_size=2 * 1024 * 1024)
 
     async def landing(request):
@@ -104,7 +133,8 @@ async def serve(args: argparse.Namespace) -> None:
         )
 
     async def health(request):
-        return web.json_response({"state": provider.status()["state"]}, headers={"Cache-Control": "no-store"})
+        state = "in_progress" if provider.active else ("ok" if provider.captured.is_set() else "idle")
+        return web.json_response({"state": state}, headers={"Cache-Control": "no-store"})
 
     app.router.add_get("/", landing)
     app.router.add_get("/healthz", health)
@@ -116,14 +146,13 @@ async def serve(args: argparse.Namespace) -> None:
         print("Open http://localhost:8098 in your own browser. No upstream requests yet.", file=sys.stderr, flush=True)
         print("Temporary session directory: " + str(data_dir), file=sys.stderr, flush=True)
         await asyncio.wait_for(provider.captured.wait(), timeout=args.timeout)
-        count = await asyncio.to_thread(count_recent_orders, provider)
+        count = await asyncio.to_thread(count_recent_orders, store)
         print(count, flush=True)
         print("Read-only check succeeded. Remove the temporary directory when finished.", file=sys.stderr, flush=True)
         await asyncio.sleep(2)
     finally:
         await runner.cleanup()
         await provider.aclose()
-        provider.invalidate()
 
 
 def main() -> int:
