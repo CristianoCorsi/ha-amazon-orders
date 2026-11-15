@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent / "backend" / "src"))
 from amazon_orders_ha.api import create_app
-from amazon_orders_ha.auth_provider import DevAuthProvider
+from amazon_orders_ha.auth import DevAuthProvider
 from amazon_orders_ha.config import Options, Settings
 from amazon_orders_ha.dev import seed_database
 from amazon_orders_ha.ha import HAEvents, MqttPublisher

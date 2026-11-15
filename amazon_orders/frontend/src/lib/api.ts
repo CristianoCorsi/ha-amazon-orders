@@ -1,4 +1,5 @@
 import type {
+  AuthStatus,
   Filters,
   ItemState,
   Monthly,
@@ -77,9 +78,9 @@ export const api = {
       normalizeDeadlines(w).items.length
     );
   },
-  authStatus: () => request<Status['auth']>('auth/status'),
+  authStatus: () => request<AuthStatus>('auth/status'),
   authStart: () => post<{ url: string }>('auth/start'),
-  authLogout: () => post<void>('auth/logout'),
+  authLogout: () => post<{ ok: true }>('auth/logout'),
   orders: async (filters: Filters = {}) =>
     normalizeOrders(await request<WireOrders>(`orders${queryString(filters)}`)),
   order: async (id: string) =>

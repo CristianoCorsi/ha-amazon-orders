@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api';
   import type { Order } from '$lib/types';
-  import { date, money, type Locale } from '$lib/i18n';
+  import { date, money, orderAmount, type Locale } from '$lib/i18n';
   import Icon from '$lib/components/Icon.svelte';
   import DataState from '$lib/components/DataState.svelte';
   import ItemEditor from '$lib/components/ItemEditor.svelte';
@@ -36,6 +36,7 @@
       <div>
         <span class="muted-text">{tr('Order', 'Ordine')}</span>
         <h2>{order.order_number}</h2>
+        {#if order.cancelled}<span class="chip muted">{tr('Cancelled', 'Annullato')}</span>{/if}
         <p>
           {tr('Placed', 'Effettuato il')}
           {date(order.placed_date, locale)}<span>
@@ -49,7 +50,9 @@
       </div>
       <div class="order-summary-total">
         <span>{tr('Order total', 'Totale ordine')}</span><strong
-          >{money(order.grand_total, locale)}</strong
+          class:cancelled-amount={order.cancelled}
+          class:struck-amount={order.cancelled && order.grand_total != null}
+          >{orderAmount(order.grand_total, order.cancelled, locale)}</strong
         ><small>{tr('Shipping', 'Spedizione')}: {money(order.shipping_total, locale)}</small>
       </div>
     </div>

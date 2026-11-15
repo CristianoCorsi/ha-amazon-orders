@@ -126,7 +126,7 @@ export function normalizeStatus(raw: WireStatus, returnsOpen = 0, warranties = 0
     state: raw.state,
     auth: {
       state: raw.auth.state ?? 'auth_required',
-      method: raw.auth.method ?? '',
+      method: raw.auth.method ?? null,
       expires_hint: raw.auth.expires_hint ?? null
     },
     backfill: {

@@ -43,10 +43,16 @@ export interface Page<T> {
   page: number;
   page_size: number;
 }
+export interface AuthStatus {
+  state: 'ok' | 'auth_required' | 'in_progress';
+  method: 'device' | 'cookies' | null;
+  expires_hint: string | null;
+  login_url?: string;
+}
 export interface Status {
   currency: string;
   state: string;
-  auth: { state: string; method: string; expires_hint: string | null };
+  auth: AuthStatus;
   backfill: { state: string; year: number; orders_processed: number; progress: number | null };
   last_recent_sync: string | null;
   next_recent_sync: string | null;

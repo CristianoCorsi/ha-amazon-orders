@@ -3,6 +3,7 @@ import { chromium } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
+import { screens, screenUrl } from './scenarios.mjs';
 const output = fileURLToPath(new URL('../../../docs/screenshots/', import.meta.url));
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch({
@@ -12,56 +13,52 @@ const browser = await chromium.launch({
 });
 const errors = [];
 const results = [];
-const screens = [
-  ['overview', '/'],
-  ['orders', '/orders'],
-  ['detail', '/orders/DEMO-01048'],
-  ['deadlines', '/deadlines'],
-  ['statistics', '/statistics'],
-  ['settings', '/settings']
-];
 try {
-  for (const mode of ['light', 'dark'])
-    for (const device of ['desktop', 'mobile']) {
-      const context = await browser.newContext({
-        viewport:
-          device === 'desktop' ? { width: 1440, height: 1080 } : { width: 390, height: 844 },
-        colorScheme: mode,
-        reducedMotion: 'reduce',
-        locale: 'en-GB'
-      });
-      const page = await context.newPage();
-      page.on('pageerror', (e) => errors.push(e.message));
-      await page.addInitScript(
-        ({ mode }) => {
-          localStorage.setItem('amazon-orders-language', 'en');
-          localStorage.setItem('amazon-orders-theme', mode);
-        },
-        { mode }
-      );
-      for (const [name, route] of screens) {
-        await page.goto(`http://127.0.0.1:5173/#${route}`);
-        await page.waitForSelector('main h1');
-        await page.waitForTimeout(650);
-        await page.locator('.skeleton-group').waitFor({ state: 'detached' });
-        await page.screenshot({ path: `${output}/${name}-${device}-${mode}.png`, fullPage: true });
-        const size = await page.evaluate(() => ({
-          width: innerWidth,
-          scroll: document.documentElement.scrollWidth
-        }));
-        assert.ok(
-          size.scroll <= size.width,
-          `${name}/${device}/${mode}: horizontal overflow ${JSON.stringify(size)}`
+  for (const language of ['en', 'it'])
+    for (const mode of ['light', 'dark'])
+      for (const device of ['desktop', 'mobile']) {
+        const context = await browser.newContext({
+          viewport:
+            device === 'desktop' ? { width: 1440, height: 1080 } : { width: 390, height: 844 },
+          colorScheme: mode,
+          reducedMotion: 'reduce',
+          locale: 'en-GB'
+        });
+        const page = await context.newPage();
+        page.on('pageerror', (e) => errors.push(e.message));
+        await page.addInitScript(
+          ({ mode, language }) => {
+            localStorage.setItem('amazon-orders-language', language);
+            localStorage.setItem('amazon-orders-theme', mode);
+          },
+          { mode, language }
         );
-        assert.equal(
-          await page.locator('main .empty-state[role="alert"]').count(),
-          0,
-          `${name} loaded without API errors`
-        );
-        results.push(`${name}-${device}-${mode}`);
+        for (const [name, route, authState] of screens) {
+          await page.goto(screenUrl(route, authState));
+          await page.waitForSelector('main h1');
+          await page.waitForTimeout(650);
+          await page.locator('.skeleton-group').waitFor({ state: 'detached' });
+          await page.screenshot({
+            path: `${output}/${name}-${device}-${mode}${language === 'it' ? '-it' : ''}.png`,
+            fullPage: true
+          });
+          const size = await page.evaluate(() => ({
+            width: innerWidth,
+            scroll: document.documentElement.scrollWidth
+          }));
+          assert.ok(
+            size.scroll <= size.width,
+            `${name}/${device}/${mode}: horizontal overflow ${JSON.stringify(size)}`
+          );
+          assert.equal(
+            await page.locator('main .empty-state[role="alert"]').count(),
+            0,
+            `${name} loaded without API errors`
+          );
+          results.push(`${name}-${device}-${mode}${language === 'it' ? '-it' : ''}`);
+        }
+        await context.close();
       }
-      await context.close();
-    }
   // Exercise behavior, not just screenshots.
   const context = await browser.newContext({
     viewport: { width: 1280, height: 900 },
@@ -109,6 +106,54 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.lang), 'it');
   await page.reload();
   await page.getByRole('heading', { name: 'Impostazioni', exact: true }).waitFor();
+  await page.evaluate(() => localStorage.setItem('amazon-orders-language', 'en'));
+  await page.goto(screenUrl('/', 'auth_required'));
+  await page.getByRole('button', { name: 'Sign in', exact: true }).waitFor();
+  await page.evaluate(() => (location.hash = '/orders/DEMO-01048'));
+  await page.getByLabel('Your note', { exact: true }).fill('Synthetic test annotation');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await page.getByText('Saved locally', { exact: true }).waitFor();
+  await page.evaluate(() => (location.hash = '/'));
+  const popupPromise = context.waitForEvent('page');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  const popup = await popupPromise;
+  await popup.waitForURL('**/auth-demo.html');
+  await page.getByRole('heading', { name: 'Finish signing in on Amazon' }).waitFor();
+  // Polling belongs to the app shell, so switching screens must not stop it.
+  await page.evaluate(() => (location.hash = '/settings'));
+  await popup
+    .getByRole('button', { name: 'Complete demo sign-in / Completa accesso demo' })
+    .click();
+  await page.getByRole('heading', { name: 'You’re connected' }).waitFor({ timeout: 7000 });
+  assert.equal(await page.getByLabel('Sign-in link', { exact: true }).count(), 0);
+  await popup.close();
+  await page.getByRole('button', { name: 'Sign out and remove device', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('heading', { name: 'You’re connected' }).waitFor();
+  await page.getByRole('button', { name: 'Sign out and remove device', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Sign out and remove device', exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).waitFor();
+  // Synthetic annotation survived device removal.
+  await page.evaluate(() => (location.hash = '/orders/DEMO-01048'));
+  await page.getByLabel('Your note', { exact: true }).waitFor();
+  assert.equal(
+    await page.getByLabel('Your note', { exact: true }).inputValue(),
+    'Synthetic test annotation'
+  );
+  await page.goto(screenUrl('/', 'auth_required'));
+  await page.evaluate(() => (window.open = () => null));
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await page
+    .getByText('The new tab was blocked. Open or copy this link on your home network.')
+    .waitFor();
+  assert.match(
+    await page.getByLabel('Sign-in link', { exact: true }).inputValue(),
+    /^http:\/\/127\.0\.0\.1:5173\/auth-demo\.html$/
+  );
+  assert.equal((await page.request.get('http://127.0.0.1:5173/favicon.svg')).status(), 200);
   await context.close();
   assert.deepEqual(errors, []);
   await writeFile(
@@ -125,7 +170,11 @@ try {
           '36-month warranty override read-back',
           'backfill pause read-back',
           'purge confirmation',
-          'auth_required',
+          'auth_required + in_progress in both languages',
+          'new tab + polling success across navigation',
+          'confirmed device removal preserves annotations',
+          'popup-blocked copyable URL',
+          'favicon returns 200',
           'Italian language persisted'
         ]
       },

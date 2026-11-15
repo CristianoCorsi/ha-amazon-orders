@@ -3,6 +3,8 @@
   import '@fontsource-variable/manrope';
   import '../app.css';
   import { api, isMock } from '$lib/api';
+  import { auth } from '$lib/auth-store';
+  import AuthPanel from '$lib/components/AuthPanel.svelte';
   import { initialLocale, type Locale } from '$lib/i18n';
   import { observeTheme } from '$lib/theme';
   import type { Status } from '$lib/types';
@@ -97,10 +99,15 @@
     const cleanup = observeTheme(() => theme);
     updateRoute();
     refreshStatus();
-    const timer = setInterval(refreshStatus, 15000);
+    auth.refresh();
+    const timer = setInterval(() => {
+      refreshStatus();
+      if ($auth.status?.state !== 'in_progress') auth.refresh();
+    }, 15000);
     window.addEventListener('hashchange', updateRoute);
     return () => {
       cleanup();
+      auth.stop();
       clearInterval(timer);
       window.removeEventListener('hashchange', updateRoute);
     };
@@ -142,11 +149,13 @@
   <div class="sidebar-bottom">
     <a href="#/settings" class="sidebar-sync"
       ><span class="sync-symbol"><Icon name="sync" size={21} /></span><strong
-        >{status?.state === 'auth_required'
-          ? tr('Sign-in needed', 'Accesso richiesto')
-          : status?.backfill.state === 'running'
-            ? tr('History in progress', 'Storico in recupero')
-            : tr('History, up to date', 'Storico aggiornato')}</strong
+        >{$auth.status?.state === 'in_progress'
+          ? tr('Sign-in in progress', 'Accesso in corso')
+          : $auth.status?.state !== 'ok'
+            ? tr('Sign-in needed', 'Accesso richiesto')
+            : status?.backfill.state === 'running'
+              ? tr('History in progress', 'Storico in recupero')
+              : tr('History, up to date', 'Storico aggiornato')}</strong
       ><span
         >{status?.backfill.orders_processed ?? 0} {tr('orders imported', 'ordini importati')}</span
       ><progress
@@ -195,25 +204,34 @@
         <p>{subtitle}</p>
       </div>
       {#if screen === 'overview'}<a class="sync-pill" href="#/settings"
-          ><span class="status-dot" class:needs-auth={status?.auth.state !== 'ok'}></span>{status
-            ?.auth.state === 'auth_required'
-            ? tr('Sign in to sync', 'Accedi per sincronizzare')
-            : tr('Synced with your home', 'Connesso alla tua casa')}<Icon
+          ><span class="status-dot" class:needs-auth={$auth.status?.state !== 'ok'}></span>{$auth
+            .status?.state === 'in_progress'
+            ? tr('Sign-in in progress', 'Accesso in corso')
+            : $auth.status?.state !== 'ok'
+              ? tr('Sign in to sync', 'Accedi per sincronizzare')
+              : tr('Synced with your home', 'Connesso alla tua casa')}<Icon
             name="chevron"
             size={16}
           /></a
         >{/if}
     </div>
-    {#if status?.auth.state === 'auth_required' && screen !== 'settings'}<a
-        href="#/settings"
-        class="alert auth-alert"
-        ><Icon name="error" /><span
+    {#if screen === 'overview' && ($auth.status?.state !== 'ok' || $auth.completed || $auth.error)}
+      <div class="overview-auth"><AuthPanel {locale} /></div>
+    {:else if $auth.status?.state !== 'ok' && screen !== 'settings'}
+      <a href="#/settings" class="alert auth-alert"
+        ><Icon name="info" /><span
           >{tr(
-            'Your Amazon session needs a fresh sign-in. Your saved history is still here.',
-            'La sessione Amazon richiede un nuovo accesso. Lo storico salvato resta disponibile.'
+            'Amazon sign-in is needed to sync. Saved history is still available.',
+            'Accedi ad Amazon per sincronizzare. Lo storico salvato resta disponibile.'
           )}</span
-        ><strong>{tr('Sign in', 'Accedi')}<Icon name="right" size={18} /></strong></a
-      >{/if}
+        ><strong
+          >{tr('Connection settings', 'Impostazioni connessione')}<Icon
+            name="right"
+            size={18}
+          /></strong
+        ></a
+      >
+    {/if}
     {#if statusError}<div class="alert error-alert" role="alert">
         <Icon name="error" size={20} /><span>{statusError}</span><button
           class="text-link"

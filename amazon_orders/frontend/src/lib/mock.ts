@@ -12,7 +12,16 @@ import {
   mdiMonitor,
   mdiPackageVariantClosed
 } from '@mdi/js';
-import type { Deadline, Filters, Item, ItemState, Order, Status, Summary } from './types';
+import type {
+  AuthStatus,
+  Deadline,
+  Filters,
+  Item,
+  ItemState,
+  Order,
+  Status,
+  Summary
+} from './types';
 const today = new Date();
 today.setHours(12, 0, 0, 0);
 const year = today.getFullYear();
@@ -140,7 +149,39 @@ const orders: Order[] = Array.from({ length: 96 }, (_, i) => {
     ]
   };
 });
-export const mockControls = { authRequired: false, failRequests: false, empty: false };
+const scenario =
+  typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('mock_auth');
+export const mockControls = {
+  authRequired: scenario === 'auth_required',
+  authInProgress: scenario === 'in_progress',
+  failRequests: false,
+  empty: false
+};
+function mockAuthStatus(): AuthStatus {
+  if (mockControls.authInProgress) {
+    try {
+      if (localStorage.getItem('amazon-orders-demo-complete') === 'yes') {
+        localStorage.removeItem('amazon-orders-demo-complete');
+        mockControls.authInProgress = false;
+        mockControls.authRequired = false;
+      }
+    } catch {
+      /* storage disabled: the demo controls still work */
+    }
+  }
+  return {
+    state: mockControls.authInProgress
+      ? 'in_progress'
+      : mockControls.authRequired
+        ? 'auth_required'
+        : 'ok',
+    method: mockControls.authRequired && !mockControls.authInProgress ? null : 'device',
+    expires_hint: null,
+    ...(mockControls.authInProgress
+      ? { login_url: new URL('auth-demo.html', location.href).href }
+      : {})
+  };
+}
 let backfillState = 'running';
 let lastSync = new Date(today.getTime() - 18 * 60000).toISOString();
 function filtered(filters: Filters): Order[] {
@@ -200,11 +241,7 @@ function status(): Status {
       : backfillState === 'running'
         ? 'backfilling'
         : 'idle',
-    auth: {
-      state: mockControls.authRequired ? 'auth_required' : 'ok',
-      method: 'login_proxy',
-      expires_hint: null
-    },
+    auth: mockAuthStatus(),
     backfill: { state: backfillState, year: year - 2, orders_processed: 96, progress: 68 },
     last_recent_sync: lastSync,
     next_recent_sync: new Date(Date.now() + 6 * 3600000).toISOString(),
@@ -245,11 +282,20 @@ export async function mockRequest(path: string, options: RequestInit): Promise<u
   const y = Number(p.get('year') || year);
   const body = options.body ? JSON.parse(String(options.body)) : {};
   if (route === 'status') return status();
-  if (route === 'auth/status') return status().auth;
-  if (route === 'auth/start') return { url: new URL('#/settings?demo-auth', location.href).href };
+  if (route === 'auth/status') return mockAuthStatus();
+  if (route === 'auth/start') {
+    try {
+      localStorage.removeItem('amazon-orders-demo-complete');
+    } catch {
+      /* demo only */
+    }
+    mockControls.authInProgress = true;
+    return { url: new URL('auth-demo.html', location.href).href };
+  }
   if (route === 'auth/logout') {
     mockControls.authRequired = true;
-    return {};
+    mockControls.authInProgress = false;
+    return { ok: true };
   }
   if (route === 'settings')
     return {
@@ -353,18 +399,16 @@ export async function mockRequest(path: string, options: RequestInit): Promise<u
       currency: 'EUR',
       items: mockControls.empty
         ? []
-        : products
-            .slice(2, 7)
-            .map((p, i) => ({
-              asin: `DEMO${String(i + 2).padStart(6, '0')}`,
-              title: p[0],
-              count: 7 - i,
-              first_date: offset(-610 - i * 10),
-              last_date: offset(-18 - i * 4),
-              price_min: p[2] - 2,
-              price_max: p[2] + 4,
-              price_last: p[2]
-            }))
+        : products.slice(2, 7).map((p, i) => ({
+            asin: `DEMO${String(i + 2).padStart(6, '0')}`,
+            title: p[0],
+            count: 7 - i,
+            first_date: offset(-610 - i * 10),
+            last_date: offset(-18 - i * 4),
+            price_min: p[2] - 2,
+            price_max: p[2] + 4,
+            price_last: p[2]
+          }))
     };
   if (route === 'stats/returns') {
     const s = summary(y);

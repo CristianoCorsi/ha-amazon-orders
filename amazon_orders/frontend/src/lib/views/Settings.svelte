@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api, isMock } from '$lib/api';
+  import { auth } from '$lib/auth-store';
+  import AuthPanel from '$lib/components/AuthPanel.svelte';
   import type { Settings, Status } from '$lib/types';
   import { date, type Locale } from '$lib/i18n';
   import Icon from '$lib/components/Icon.svelte';
@@ -26,8 +28,7 @@
     acting = $state('');
   let status = $state<Status | null>(null),
     settings = $state<Settings | null>(null),
-    calendarUrl = $state(''),
-    authUrl = $state('');
+    calendarUrl = $state('');
   let scope = $state('all'),
     scopeValue = $state(''),
     purgeDialog: HTMLDialogElement;
@@ -60,34 +61,6 @@
       await refresh();
       message = success;
     } catch (e) {
-      actionError = (e as Error).message;
-    } finally {
-      acting = '';
-    }
-  }
-  async function signIn() {
-    const popup = window.open('about:blank', '_blank');
-    if (popup) popup.opener = null;
-    acting = 'auth';
-    actionError = '';
-    try {
-      const result = await api.authStart();
-      const url = new URL(result.url, document.baseURI);
-      if (!['http:', 'https:'].includes(url.protocol))
-        throw new Error(tr('Invalid sign-in URL', 'URL di accesso non valido'));
-      authUrl = url.href;
-      if (popup) popup.location.href = url.href;
-      message = isMock
-        ? tr(
-            'Demo only: no Amazon session is opened. Toggle the authentication scenario below to change the state.',
-            'Solo demo: non viene aperta una sessione Amazon. Usa lo scenario di autenticazione qui sotto per cambiare stato.'
-          )
-        : tr(
-            'Complete sign-in in the new tab, then refresh the status here.',
-            'Completa l’accesso nella nuova scheda, poi aggiorna lo stato qui.'
-          );
-    } catch (e) {
-      popup?.close();
       actionError = (e as Error).message;
     } finally {
       acting = '';
@@ -133,9 +106,11 @@
   async function demo() {
     const { mockControls } = await import('$lib/mock');
     mockControls.authRequired = demoAuth;
+    mockControls.authInProgress = false;
     mockControls.empty = demoEmpty;
     mockControls.failRequests = demoError;
     await onRefresh();
+    await auth.refresh();
     if (!demoError) status = await api.status();
   }
   onMount(() => {
@@ -166,65 +141,7 @@
   </div>{/if}
 <DataState {busy} {error} {locale} retry={load}>
   <div class="settings-grid">
-    <section class="panel settings-card">
-      <div class="section-heading">
-        <div>
-          <h2>{tr('Your Amazon connection', 'La connessione ad Amazon')}</h2>
-          <p>amazon.it</p>
-        </div>
-        <span class="status-orb" class:warning={status?.auth.state !== 'ok'}
-          ><Icon name={status?.auth.state === 'ok' ? 'warranty' : 'error'} size={25} /></span
-        >
-      </div>
-      <h3 class="connection-heading">
-        {status?.auth.state === 'ok'
-          ? tr('Connected, and read-only', 'Connesso, in sola lettura')
-          : status?.auth.state === 'in_progress'
-            ? tr('Sign-in in progress', 'Accesso in corso')
-            : tr('Time to sign in again', 'È necessario un nuovo accesso')}
-      </h3>
-      <p class="settings-description">
-        {tr(
-          'Sign in on Amazon’s own pages in a separate tab. This add-on never asks for your password.',
-          'Accedi sulle pagine di Amazon in una scheda separata. Questo add-on non chiede mai la tua password.'
-        )}
-      </p>
-      <div class="button-row">
-        {#if status?.auth.state !== 'ok'}<button
-            class="button primary"
-            disabled={!!acting}
-            onclick={signIn}>{tr('Sign in', 'Accedi')}<Icon name="external" size={17} /></button
-          >{:else}<button
-            class="button secondary"
-            disabled={!!acting}
-            onclick={() =>
-              act(
-                'logout',
-                () => api.authLogout(),
-                tr(
-                  'Disconnected. Cached history and annotations are unchanged.',
-                  'Disconnesso. Storico e annotazioni restano invariati.'
-                )
-              )}><Icon name="logout" size={17} />{tr('Disconnect', 'Disconnetti')}</button
-          >{/if}<button
-          class="text-link"
-          disabled={!!acting}
-          onclick={() =>
-            act(
-              'status',
-              refresh,
-              tr('Connection status refreshed.', 'Stato della connessione aggiornato.')
-            )}>{tr('Check status', 'Verifica stato')}<Icon name="refresh" size={17} /></button
-        >
-      </div>
-      {#if authUrl}<a
-          class="text-link auth-fallback"
-          href={authUrl}
-          target="_blank"
-          rel="noreferrer"
-          >{tr('Open sign-in tab', 'Apri scheda di accesso')}<Icon name="external" size={16} /></a
-        >{/if}
-    </section>
+    <AuthPanel {locale} settings />
     <section class="panel settings-card">
       <div class="section-heading">
         <div>
@@ -272,15 +189,17 @@
         </p>
       </div>
       <span class="chip"
-        ><Icon name="sync" size={16} />{status?.state === 'backfilling'
-          ? tr('Backfilling', 'Recupero storico')
-          : status?.state === 'auth_required'
+        ><Icon name="sync" size={16} />{$auth.status?.state === 'in_progress'
+          ? tr('Sign-in in progress', 'Accesso in corso')
+          : $auth.status?.state !== 'ok'
             ? tr('Sign-in needed', 'Accesso richiesto')
-            : status?.state === 'cooldown'
-              ? tr('Cooling down', 'In attesa')
-              : status?.state === 'idle'
-                ? tr('Up to date', 'Aggiornato')
-                : status?.state}</span
+            : status?.state === 'backfilling'
+              ? tr('Backfilling', 'Recupero storico')
+              : status?.state === 'cooldown'
+                ? tr('Cooling down', 'In attesa')
+                : status?.state === 'idle'
+                  ? tr('Up to date', 'Aggiornato')
+                  : status?.state}</span
       >
     </div>
     {#if status?.last_error}<div class="alert error-alert" role="alert">
@@ -320,7 +239,7 @@
         <div class="button-row">
           <button
             class="button secondary"
-            disabled={!!acting || status?.auth.state !== 'ok'}
+            disabled={!!acting || $auth.status?.state !== 'ok'}
             onclick={() =>
               act(
                 'backfill',
@@ -335,7 +254,7 @@
               : tr('Resume backfill', 'Riprendi recupero')}</button
           ><button
             class="button primary"
-            disabled={!!acting || status?.auth.state !== 'ok'}
+            disabled={!!acting || $auth.status?.state !== 'ok'}
             onclick={() =>
               act(
                 'recent',

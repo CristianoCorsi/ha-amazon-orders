@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveLocale, money, date, daysLeft } from './i18n';
+import { resolveLocale, money, orderAmount, date, daysLeft } from './i18n';
 import { extractTheme, contrastRatio } from './theme';
 describe('locale and presentation', () => {
   it('prioritizes a supported override, HA, browser, then English', () => {
@@ -11,6 +11,11 @@ describe('locale and presentation', () => {
   it('formats euros without converting their amount', () => {
     expect(money(1234.5, 'it')).toContain('1.234,50');
     expect(money(null, 'en')).toBe('Not available');
+  });
+  it('shows cancelled order totals as a neutral amount or a dash, not missing data', () => {
+    expect(orderAmount(null, true, 'en')).toBe('-');
+    expect(orderAmount(89.9, true, 'en')).toBe(money(89.9, 'en'));
+    expect(orderAmount(null, false, 'it')).toBe('Non disponibile');
   });
   it('formats ISO dates as local calendar dates and counts civil days', () => {
     expect(date('2026-11-15', 'en')).toBe('15 Nov 2026');

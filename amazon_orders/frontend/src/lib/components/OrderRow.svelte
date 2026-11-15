@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Order } from '$lib/types';
-  import { date, money, type Locale } from '$lib/i18n';
+  import { date, orderAmount, type Locale } from '$lib/i18n';
   import Icon from './Icon.svelte';
   import ProductImage from './ProductImage.svelte';
   import Countdown from './Countdown.svelte';
@@ -32,7 +32,10 @@
         ><Icon name="check" size={14} />{locale === 'it' ? 'Da tenere' : 'Keeping'}</span
       >{/if}
   </div>
-  <strong class="order-price">{money(order.grand_total, locale)}</strong><span class="row-chevron"
-    ><Icon name="chevron" size={20} /></span
-  >
+  <strong
+    class="order-price"
+    class:cancelled-amount={order.cancelled}
+    class:struck-amount={order.cancelled && order.grand_total != null}
+    >{orderAmount(order.grand_total, order.cancelled, locale)}</strong
+  ><span class="row-chevron"><Icon name="chevron" size={20} /></span>
 </a>

@@ -221,7 +221,9 @@
               >{tr('last paid', 'ultimo prezzo')}</small
             >
           </div>
-        </div>{/each}
+        </div>{:else}<p class="quiet-empty">
+          {tr('No recurring purchases yet.', 'Nessun acquisto ricorrente per ora.')}
+        </p>{/each}
     </section>
     <section class="panel refund-panel">
       <div class="section-heading">
@@ -283,25 +285,56 @@
         </div>{/each}
     </div>
     <div class="heatmap">
-      <span>{tr('Monthly pattern, all years', 'Distribuzione mensile, tutti gli anni')}</span>
-      <div class="heatmap-grid">
-        {#each Array.from({ length: 12 }, (_, i) => i + 1) as month}<div class="heatmap-column">
-            <small
-              >{new Intl.DateTimeFormat(locale, { month: 'short' }).format(
-                new Date(year, month - 1, 1)
-              )}</small
-            >{#each Array.from({ length: 7 }, (_, i) => i) as day}{@const count =
-                heatmap.find(
-                  (h) => h.month.slice(-2) === String(month).padStart(2, '0') && h.weekday === day
-                )?.orders ?? 0}
-              <div
-                class="heatmap-cell"
-                style={`--intensity:${Math.min(count / 3, 1)}`}
-                title={`${weekdays[day]} / ${month}: ${count}`}
-              >
-                <span class="sr-only">{weekdays[day]} {month}: {count}</span>
-              </div>{/each}
-          </div>{/each}
+      <h3>{tr('Monthly pattern, all years', 'Distribuzione mensile, tutti gli anni')}</h3>
+      <p class="muted-text">
+        {tr(
+          'Orders per weekday and month. Darker cells mean more orders.',
+          'Ordini per giorno e mese. Le celle più scure indicano più ordini.'
+        )}
+      </p>
+      <!-- Keyboard focus lets small-screen users scroll the data table without a pointer. -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <div
+        class="heatmap-scroll"
+        tabindex="0"
+        role="region"
+        aria-label={tr(
+          'Monthly order counts, scroll horizontally on small screens',
+          'Ordini mensili, scorri in orizzontale sugli schermi piccoli'
+        )}
+      >
+        <table class="heatmap-table">
+          <caption class="sr-only"
+            >{tr(
+              'Orders by month and weekday, all years',
+              'Ordini per mese e giorno della settimana, tutti gli anni'
+            )}</caption
+          >
+          <thead
+            ><tr
+              ><th scope="col"><span class="sr-only">{tr('Weekday', 'Giorno')}</span></th
+              >{#each Array.from({ length: 12 }, (_, i) => i + 1) as month}<th scope="col"
+                  >{new Intl.DateTimeFormat(locale, { month: 'short' }).format(
+                    new Date(year, month - 1, 1)
+                  )}</th
+                >{/each}</tr
+            ></thead
+          >
+          <tbody
+            >{#each weekdays as day, index}<tr
+                ><th scope="row">{day}</th
+                >{#each Array.from({ length: 12 }, (_, i) => i + 1) as month}{@const count =
+                    heatmap.find(
+                      (h) =>
+                        h.month.slice(-2) === String(month).padStart(2, '0') && h.weekday === index
+                    )?.orders ?? 0}<td
+                    ><span class="heatmap-cell" style={`--intensity:${Math.min(count / 3, 1)}`}
+                      >{count}</span
+                    ></td
+                  >{/each}</tr
+              >{/each}</tbody
+          >
+        </table>
       </div>
     </div>
   </section>

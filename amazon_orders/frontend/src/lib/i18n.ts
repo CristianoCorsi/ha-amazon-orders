@@ -21,6 +21,13 @@ export function money(value: number | null | undefined, locale: Locale, currency
         useGrouping: true
       }).format(value);
 }
+export function orderAmount(
+  value: number | null | undefined,
+  cancelled: boolean,
+  locale: Locale
+): string {
+  return cancelled && value == null ? '-' : money(value, locale);
+}
 export function date(value: string | null | undefined, locale: Locale): string {
   if (!value) return locale === 'it' ? 'Sconosciuta' : 'Unknown';
   const parsed = new Date(value.slice(0, 10) + 'T12:00:00');

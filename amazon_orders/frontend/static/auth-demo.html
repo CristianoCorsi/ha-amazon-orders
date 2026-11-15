@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  /><title>Synthetic sign-in demo</title
+  ><link rel="icon" href="favicon.svg" type="image/svg+xml" /><style>
+    body {
+      font:
+        1rem/1.6 system-ui,
+        sans-serif;
+      max-width: 36rem;
+      margin: 10vh auto;
+      padding: 24px;
+      color: #17353d;
+      background: #f3f7f8;
+    }
+    button {
+      font: inherit;
+      padding: 12px 20px;
+      border: 0;
+      border-radius: 24px;
+      background: #087f8c;
+      color: white;
+      cursor: pointer;
+    }
+    button:focus-visible {
+      outline: 3px solid #17353d;
+      outline-offset: 3px;
+    }
+  </style>
+  <h1>Sign-in demo / Demo accesso</h1>
+  <p>
+    Synthetic demo only. No Amazon connection and no credentials. / Solo demo simulata. Nessuna
+    connessione ad Amazon e nessuna credenziale.
+  </p>
+  <button id="complete">Complete demo sign-in / Completa accesso demo</button>
+  <p id="result" role="status"></p>
+  <script>
+    document.getElementById('complete').onclick = () => {
+      try {
+        localStorage.setItem('amazon-orders-demo-complete', 'yes');
+        document.getElementById('result').textContent =
+          'Done. Return to Amazon Orders. / Fatto. Torna ad Amazon Orders.';
+      } catch {
+        document.getElementById('result').textContent =
+          'Storage disabled. Change the demo scenario in Settings. / Archiviazione disabilitata. Cambia lo scenario demo nelle Impostazioni.';
+      }
+    };
+  </script>
+</html>

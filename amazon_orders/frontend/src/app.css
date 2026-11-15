@@ -1354,43 +1354,112 @@ legend {
   color: var(--text-muted);
 }
 .heatmap {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 32px;
   margin: 14px 24px 28px;
   padding-top: 24px;
   border-top: 1px solid var(--border);
 }
-.heatmap > span {
-  font-size: 11px;
+.heatmap > h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.heatmap > p {
+  margin: 0 0 16px;
+  font-size: 12px;
+}
+.heatmap-scroll {
+  overflow-x: auto;
+  border-radius: 8px;
+}
+.heatmap-table {
+  width: 100%;
+  min-width: 620px;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 5px;
+}
+.heatmap-table th,
+.heatmap-table td {
+  padding: 0;
+  border: 0;
+  text-align: center;
+}
+.heatmap-table th {
+  font-size: 12px;
   color: var(--text-muted);
+  height: 28px;
 }
-.heatmap-grid {
-  display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  gap: 8px;
-}
-.heatmap-column {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  align-items: center;
-}
-.heatmap-column > small {
-  font-size: 9px;
-  color: var(--text-muted);
-  margin-bottom: 5px;
+.heatmap-table th:first-child {
+  width: 42px;
+  text-align: left;
 }
 .heatmap-cell {
-  width: 17px;
-  height: 10px;
-  border-radius: 3px;
-  background: color-mix(
-    in srgb,
-    var(--primary) calc(var(--intensity) * 100%),
-    var(--surface-muted)
-  );
+  display: grid;
+  place-items: center;
+  min-height: 34px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text);
+  background: color-mix(in srgb, var(--primary) calc(var(--intensity) * 24%), var(--surface-muted));
+}
+.cancelled-amount {
+  color: var(--text-muted);
+}
+.struck-amount {
+  text-decoration: line-through;
+  font-weight: 500;
+}
+.overview-auth {
+  margin-bottom: 24px;
+}
+.auth-description {
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--text-muted);
+  max-width: 80ch;
+  margin: 0 0 20px;
+}
+.auth-progress,
+.auth-success {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--primary-ink);
+}
+.auth-progress svg,
+.auth-success svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.auth-card .button-row {
+  gap: 14px;
+}
+.auth-link-fallback {
+  padding-top: 12px;
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.auth-link-fallback p,
+.auth-demo-note {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+.auth-link-fallback .copy-field {
+  margin-top: 12px;
+}
+.auth-card .section-heading > div {
+  min-width: 0;
+}
+.auth-card .status-orb {
+  flex-shrink: 0;
+}
+.auth-card .button,
+.confirm-dialog .button {
+  white-space: normal;
+  text-align: center;
 }
 .chart-data {
   border-top: 1px solid var(--border);
@@ -1849,17 +1918,6 @@ progress::-moz-progress-bar {
   .sync-content .button {
     font-size: 10px;
     padding: 10px 14px;
-  }
-  .heatmap {
-    display: block;
-  }
-  .heatmap > span {
-    display: block;
-    margin-bottom: 18px;
-  }
-  .heatmap-grid {
-    max-width: 550px;
-    margin: auto;
   }
   .recurring-row {
     padding-inline: 20px;
@@ -2536,20 +2594,6 @@ progress::-moz-progress-bar {
     margin: 13px 20px 24px;
     padding-top: 20px;
     overflow: auto;
-  }
-  .heatmap-grid {
-    gap: 5px;
-    min-width: 285px;
-  }
-  .heatmap-cell {
-    width: 15px;
-    height: 10px;
-  }
-  .heatmap-column > small {
-    font-size: 8px;
-  }
-  .heatmap > span {
-    font-size: 10px;
   }
   .settings-card {
     padding: 21px;
