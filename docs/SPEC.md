@@ -181,6 +181,46 @@ GET   calendar.ics
 Money is returned as numbers in the order currency plus a top-level `currency` (EUR for .it).
 Dates are ISO `YYYY-MM-DD`. Errors: `{error: {code, message}}`.
 
+### 10.1 Response shapes (added by the backend implementation; additive, no path changes)
+
+- Errors: `{error: {code, message}}`; codes `not_found` (404), `validation_error` (422),
+  `auth_unavailable` (501), `internal_error` (500). Unknown `api/...` paths return the same JSON 404.
+- List filters (`api/orders`, `api/items`, `api/export.csv`): `q` (FTS, accent-insensitive, prefix match, over title,
+  seller, order number), `from`/`to` (placed date, ISO), `seller` (exact, case-insensitive),
+  `status` (`none|keep|to_return|returned|cancelled`), `min`/`max` (order grand total for orders, item price for
+  items), `sort` (`date_desc` default, `date_asc`, `total_desc|total_asc` = `price_*`, `title_asc` items only),
+  `page` (>=1), `page_size` (1..200, default 50).
+- `api/orders` → `{orders: [{order_number, placed_date, grand_total, refund_total, cancelled,
+  status: delivered|in_progress|cancelled|unknown, details_link, has_details, item_count,
+  items: [{id, title, asin, price, image_link, seller, status}]}], total, page, page_size, currency}`.
+- `api/items` → `{items: [Item], total, page, page_size, currency}` where
+  `Item = {id, order_number, asin, title, price, quantity, seller, image_link, link, return_eligible_date,
+  delivered_date, state: {status, note, warranty_until_override, warranty_months_override},
+  deadlines: {return: Deadline, warranty: Deadline}, order: {order_number, placed_date, cancelled, details_link}}`.
+- `Deadline = {kind, deadline|null, days_left|null, state: open|closed|unknown|none, source: amazon|override|computed|null}`.
+  `unknown` = no Amazon return date on a recent order; `none` = returned/cancelled (or return `keep`).
+- `api/orders/{n}` → `{order: {...columns, status}, shipments: [{shipment_key, status_text, delivered_date,
+  tracking_link}], items: [Item], currency}`.
+- `PATCH api/items/{id}/state` → the updated `Item`. Omitted fields are unchanged; explicit `null` clears an override.
+- `api/deadlines` → `{deadlines: [Deadline & {item: {id,title,asin,price,seller,image_link,link,order_number},
+  order: {...}, status}], total, today}` sorted by deadline; `unknown`/`none` entries are never listed;
+  `include_closed=true` adds `closed` ones. `within_days` filters open ones by `days_left`.
+- `api/stats/*`: `summary` → `{year, currency, spend, orders, items, avg_order, shipping_paid, refunds, cancelled,
+  gift_card_used, coupon_savings}`; `monthly` → `{months: [{month: 'YYYY-MM', spend, orders}]}` (zero-filled, default
+  last 36 months); `sellers` → `{sellers: [{seller, spend, items, orders}]}`; `top-items` → `{items: [...]}`;
+  `recurring` → `{recurring: [{asin, title, count, first_date, last_date, price_min, price_max, price_last,
+  total_spent, image_link}]}`; `returns` → `{returned_items, returned_amount, refund_orders, refund_amount,
+  to_return_items, items, return_rate}`; `weekday` → `{weekdays: [{weekday 0=Mon, orders}], months: [{month, orders}],
+  heatmap: [{weekday, month, orders}]}`. Cancelled orders are excluded from spend/orders/items.
+- `POST api/sync/recent` → `{queued: true}`; `POST api/sync/backfill` → `{status: running|paused|done, year, processed}`;
+  `POST api/cache/purge` → `{scope, purged}`.
+- `api/status` → `{state: idle|syncing|backfilling|cooldown|auth_required|error, auth, job, preset, backfill: {status,
+  year, processed, history_done, percent|null, window_open, next_window, until_year, orders_detailed, orders_stale},
+  cooldown|null, last_error|null, last_recent, next_recent_at, counts, currency, version, ha}`.
+- The server injects `<base href="{X-Ingress-Path}/">` into `index.html` so relative URLs work under Ingress.
+- Item `status = keep` means "decided to keep": it suppresses return deadlines/events (warranty is unaffected).
+- Money fields `gift_card`, `coupon_savings`, `refund_total` are stored as positive magnitudes.
+
 ## 11. Add-on options (config.yaml)
 
 ```
