@@ -1,0 +1,21 @@
+# Amazon sessions and personal data: never commit
+cookies*.json
+*.cookies
+config.yml
+orders*.json
+*.sqlite
+*.db
+_testdata/
+*.local/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
