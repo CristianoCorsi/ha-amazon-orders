@@ -552,3 +552,11 @@ def test_amazon_error_summary():
     r = httpx.Response(400, json={"response": {"error": error}})
     assert amazon_error_summary(r) == "InvalidValue | bad client | 0"
     assert amazon_error_summary(httpx.Response(400, text="<html>")).startswith("non-JSON")
+
+
+def test_each_registration_uses_a_unique_device_name():
+    from amazon_orders_ha.auth.device import APP_NAME, DeviceFlow
+
+    a, b = DeviceFlow(), DeviceFlow()
+    assert a.device_name != b.device_name and a.device_name.startswith(APP_NAME + " ")
+    assert a.registration_body("code")["registration_data"]["device_name"] == a.device_name

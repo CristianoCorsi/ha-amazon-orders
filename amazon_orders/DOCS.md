@@ -31,6 +31,10 @@ own browser; the add-on keeps only the resulting session cookies in its private 
 3. Complete the Amazon sign-in (password, OTP, captcha if asked).
 4. The panel shows the account as signed in and the first sync starts.
 
+The add-on appears in Amazon's device list (**Your Account → Content and Devices → Devices**) as
+`Home Assistant Amazon Orders XXXX`. Removing it there revokes the add-on's access; **Sign out** in the
+add-on removes it too.
+
 Why a separate port on the LAN? The sign-in must run on a page whose address Amazon's
 cookies and redirects can follow; the Home Assistant Ingress iframe cannot do that reliably.
 Treat the port as temporary: open the link only while signing in, and do not forward it

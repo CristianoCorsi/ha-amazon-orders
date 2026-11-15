@@ -23,7 +23,7 @@ from .cookies import is_site_domain
 
 API_BASE = "https://api.amazon.com"
 
-APP_NAME = "Home Assistant Amazon Orders Auth Experiment"
+APP_NAME = "Home Assistant Amazon Orders"
 DEVICE_TYPE = "A2IVLV5VM2W81"
 APP_VERSION = "2.2.663733.0"
 
@@ -37,6 +37,9 @@ class DeviceFlow:
 
     def __init__(self) -> None:
         self.serial = uuid.uuid4().hex.upper()
+        # Amazon refuses a registration whose device name already exists on the account
+        # (DuplicateDeviceName), so every registration gets a short unique suffix.
+        self.device_name = f"{APP_NAME} {self.serial[:4]}"
         self.client_id = f"{self.serial}#{DEVICE_TYPE}".encode().hex()
         self.verifier = _b64(secrets.token_bytes(32))
         self.frc = base64.b64encode(secrets.token_bytes(313)).decode().rstrip("=")
@@ -87,7 +90,7 @@ class DeviceFlow:
                 "domain": "Device",
                 "app_version": APP_VERSION,
                 "device_type": DEVICE_TYPE,
-                "device_name": APP_NAME,
+                "device_name": self.device_name,
                 "os_version": "18.5",
                 "device_serial": self.serial,
                 "device_model": "iPhone",

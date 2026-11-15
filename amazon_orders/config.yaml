@@ -1,6 +1,6 @@
 ---
 name: Amazon Orders
-version: "0.1.4"
+version: "0.1.5"
 slug: amazon_orders
 description: >-
   Read-only Amazon order history: search, return and warranty deadlines,

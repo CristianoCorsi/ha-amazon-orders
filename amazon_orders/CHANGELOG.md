@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5
+
+- Fix sign-in failing with `DuplicateDeviceName`: each registration now uses a unique device name, shown in Amazon's device list as `Home Assistant Amazon Orders XXXX`.
+
 ## 0.1.4
 
 - Log Amazon's own error code and message when the device registration is refused.
