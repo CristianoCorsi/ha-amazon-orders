@@ -30,3 +30,6 @@ dev-data/
 .ruff_cache/
 .pytest_cache/
 docs/screenshots/*.json
+
+# Visual-test output (regenerate with pnpm test:visual); curated images live in docs/images
+docs/screenshots/
