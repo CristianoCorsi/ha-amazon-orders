@@ -70,3 +70,7 @@ Session cookies are stored in `~/.config/amazonorders/`. Never commit them.
 ## Disclaimer
 
 Amazon offers no public API for customers' orders. This project reads the same pages the Amazon website shows you when you are signed in, so it can break whenever Amazon changes its website, and automated access may be against Amazon's Conditions of Use. For personal use, at your own risk. Not affiliated with or endorsed by Amazon.
+
+## License
+
+[MIT](LICENSE)
