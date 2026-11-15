@@ -512,3 +512,24 @@ def test_supervisor_lan_address_prefers_primary_interface(monkeypatch):
     assert supervisor_lan_address(transport) == "192.168.1.20"
     monkeypatch.delenv("SUPERVISOR_TOKEN")
     assert supervisor_lan_address(transport) is None
+
+
+@pytest.mark.parametrize("host", ["100.101.2.3:8123", "homeassistant.tail1234.ts.net", "[fd7a:115c:a1e0::1]:8123"])
+def test_tailscale_hosts_are_used_directly(make_provider, host):
+    from amazon_orders_ha.auth.urls import split_host
+
+    p = make_provider(login_port=8098, lan_address=lambda: "192.168.1.20")
+    name, _ = split_host(host)
+    assert p._public_base(host).startswith("http://" + (f"[{name}]" if ":" in name else name) + ":8098/")
+
+
+def test_supervisor_lan_address_skips_tailscale_interface(monkeypatch):
+    from amazon_orders_ha.auth.provider import supervisor_lan_address
+
+    payload = {"data": {"interfaces": [
+        {"interface": "tailscale0", "primary": True, "ipv4": {"address": ["100.101.2.3/32"]}},
+        {"interface": "eth0", "primary": False, "ipv4": {"address": ["192.168.1.20/24"]}},
+    ]}}
+    monkeypatch.setenv("SUPERVISOR_TOKEN", "test-token")
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=payload))
+    assert supervisor_lan_address(transport) == "192.168.1.20"

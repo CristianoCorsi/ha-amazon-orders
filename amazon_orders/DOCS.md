@@ -24,7 +24,10 @@ and relays Amazon's own sign-in pages. You type your password and one-time code 
 own browser; the add-on keeps only the resulting session cookies in its private `/data` folder.
 
 1. Open the add-on panel and go to **Settings / Sync → Sign in**.
-2. Open the link shown there **from a device on your home network** (`http://<home-assistant-ip>:8098/...`).
+2. Open the link shown there **from a device on your home network or your Tailscale tailnet** (`http://<home-assistant-ip>:8098/...`).
+   If you open Home Assistant through Tailscale (a `100.x.y.z` address or a `*.ts.net` name), the link uses that
+   same address; this needs Tailscale running on the Home Assistant host (for example the Tailscale add-on).
+   If you open it through a public name (DuckDNS, Nabu Casa), the link uses Home Assistant's LAN address.
 3. Complete the Amazon sign-in (password, OTP, captcha if asked).
 4. The panel shows the account as signed in and the first sync starts.
 

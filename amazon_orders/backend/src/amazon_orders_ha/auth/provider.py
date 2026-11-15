@@ -18,7 +18,7 @@ from .base import AUTH_COOKIE, AuthRequired, AuthStatus, AuthTemporarilyUnavaila
 from .device import TokenRejected, TokenTransient, deregister_device, exchange_refresh_token
 from .proxy import LoginProxy
 from .server import LoginServer
-from .urls import format_netloc, is_lan_host, resolves_to_lan, split_host
+from .urls import format_netloc, is_lan_host, is_tailscale_host, resolves_to_lan, split_host
 
 if TYPE_CHECKING:
     from amazonorders.session import AmazonSession
@@ -377,6 +377,6 @@ def supervisor_lan_address(transport: Any = None) -> str | None:
     for iface in interfaces:
         for cidr in ((iface.get("ipv4") or {}).get("address") or []):
             ip = str(cidr).split("/")[0]
-            if ip and is_lan_host(ip):
+            if ip and is_lan_host(ip) and not is_tailscale_host(ip):
                 return ip
     return None

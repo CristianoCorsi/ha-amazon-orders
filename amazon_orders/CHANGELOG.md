@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Sign-in works over Tailscale: `100.64.0.0/10` addresses and `*.ts.net` MagicDNS names are used directly for the login link (tailnet traffic is encrypted end to end).
+
 ## 0.1.1
 
 - Sign-in link works when Home Assistant is opened through a public name (DuckDNS, Nabu Casa, reverse proxy): the add-on now uses Home Assistant's LAN address for the login page, or a local DNS name that resolves to the LAN.

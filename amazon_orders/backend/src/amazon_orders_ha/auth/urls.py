@@ -54,6 +54,18 @@ def upstream_url(request_path: str, proxy_base: str, site: str) -> str:
 
 _HOST_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]{0,62}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,62}[A-Za-z0-9])?)*$")
 _LAN_SUFFIXES = (".local", ".lan", ".home", ".internal", ".home.arpa", ".localdomain")
+# Tailscale: MagicDNS names and tailnet addresses. Traffic inside a tailnet is end-to-end encrypted
+# (WireGuard), so serving the plain-HTTP login page there is as safe as on the home LAN.
+_TAILSCALE_SUFFIXES = (".ts.net",)
+_TAILSCALE_NETS = (ipaddress.ip_network("100.64.0.0/10"), ipaddress.ip_network("fd7a:115c:a1e0::/48"))
+
+
+def is_tailscale_host(host: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return host.endswith(_TAILSCALE_SUFFIXES)
+    return any(ip in net for net in _TAILSCALE_NETS)
 
 
 def split_host(value: str | None) -> tuple[str, int | None]:
@@ -81,6 +93,8 @@ def split_host(value: str | None) -> tuple[str, int | None]:
 
 def is_lan_host(host: str) -> bool:
     """Loopback, private/link-local IPs, single-label and mDNS/LAN-style names. The login relay speaks plain HTTP."""
+    if is_tailscale_host(host):
+        return True
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:
