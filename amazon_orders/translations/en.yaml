@@ -35,7 +35,7 @@ configuration:
     description: Verbosity of the add-on log. Cookies, passwords and codes are never logged.
   login_port:
     name: Sign-in port
-    description: Port of the Amazon sign-in page, reachable from your local network while you sign in.
+    description: Port used in the sign-in link. Keep it equal to the host port of 8098/tcp in the Network section.
   login_host:
     name: Sign-in host (optional)
     description: >-

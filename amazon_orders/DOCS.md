@@ -49,7 +49,7 @@ If the session expires, the add-on fires `amazon_orders_auth_required` and the
 | `mqtt` | empty | Only if the Mosquitto add-on is not used: `host`, `port`, `username`, `password`. |
 | `domain` | `amazon.it` | Optional, advanced. Only amazon.it is tested. |
 | `log_level` | `info` | Cookies, passwords and codes are never logged. |
-| `login_port` | `8098` | Port of the sign-in page (also change the port mapping in **Network**). |
+| `login_port` | `8098` | Port used in the sign-in link. Keep it equal to the host port of `8098/tcp` in the **Network** section; change both together. |
 | `login_host` | empty | Host name/IP used in the sign-in link; empty = auto. |
 
 ### Sync presets, backfill and cache

@@ -462,3 +462,20 @@ def test_device_mode_proxies_global_signin_with_pkce(make_provider):
     query = parse_qs(seen[0].url.query.decode())
     assert seen[0].url.host == "www.amazon.com" and seen[0].url.path == "/ap/signin"
     assert query["openid.oa2.scope"] == ["device_auth_access"] and "openid.oa2.code_challenge" in query
+
+
+def test_link_port_and_bind_port_are_independent(make_provider):
+    """In the add-on the listener binds 8098 in the container; the link uses the mapped host port."""
+    p = make_provider(login_port=18098, bind_port=8098)
+    assert p.bind_port == 8098
+    assert p._public_base("192.168.1.10") == "http://192.168.1.10:18098/"
+
+
+def test_factory_binds_container_port(tmp_path):
+    from types import SimpleNamespace
+
+    from amazon_orders_ha.auth.provider import CONTAINER_LOGIN_PORT, create_auth_provider
+
+    opts = SimpleNamespace(domain="amazon.it", login_port=9000, login_host="")
+    p = create_auth_provider(SimpleNamespace(data_dir=tmp_path, options=opts))
+    assert p.bind_port == CONTAINER_LOGIN_PORT == 8098 and p.login_port == 9000

@@ -35,7 +35,7 @@ configuration:
     description: Dettaglio del log. Cookie, password e codici non vengono mai registrati.
   login_port:
     name: Porta di accesso
-    description: Porta della pagina di accesso ad Amazon, raggiungibile dalla rete locale mentre accedi.
+    description: Porta usata nel link di accesso. Deve coincidere con la porta host di 8098/tcp nella sezione Rete.
   login_host:
     name: Host di accesso (facoltativo)
     description: >-

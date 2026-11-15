@@ -44,6 +44,7 @@ class DeviceAuthProvider:
         domain: str = "amazon.it",
         *,
         login_port: int = 8098,
+        bind_port: int | None = None,
         login_host: str = "",
         lifetime: float = 900,
         bind_host: str = "0.0.0.0",
@@ -58,7 +59,10 @@ class DeviceAuthProvider:
         self.domain = domain
         self.store = CookieStore(Path(data_dir) / "auth", domain)
         self.device_path = self.store.directory / "device.json"
+        # login_port: port in the link the browser opens (the host port mapped in HA's Network
+        # settings). bind_port: port the listener binds inside the container (fixed 8098 in the add-on).
         self.login_port = int(login_port)
+        self.bind_port = int(bind_port) if bind_port is not None else self.login_port
         self.login_host = (login_host or "").strip()
         if self.login_host:
             split_host(self.login_host)  # fail early on a malformed override
@@ -267,7 +271,7 @@ class DeviceAuthProvider:
                 on_captured=self._on_captured,
             )
             server = LoginServer(
-                proxy, self.login_port, self.bind_host, on_finished=self._on_finished, grace=self.grace
+                proxy, self.bind_port, self.bind_host, on_finished=self._on_finished, grace=self.grace
             )
             server.start()  # AuthRequired when the port cannot be bound
             self._server, self._url = server, proxy.url
@@ -330,6 +334,10 @@ class DeviceAuthProvider:
                 self._url = None
 
 
+#: Port the sign-in listener binds inside the add-on container (``ports: 8098/tcp`` in config.yaml).
+CONTAINER_LOGIN_PORT = 8098
+
+
 def create_auth_provider(settings: Any) -> DeviceAuthProvider:
     """Factory used by ``service.make_auth_provider``."""
     opts = settings.options
@@ -337,5 +345,6 @@ def create_auth_provider(settings: Any) -> DeviceAuthProvider:
         settings.data_dir,
         opts.domain,
         login_port=opts.login_port,
+        bind_port=CONTAINER_LOGIN_PORT,
         login_host=opts.login_host,
     )

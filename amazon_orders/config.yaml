@@ -11,10 +11,7 @@ arch:
   - amd64
 image: ghcr.io/cristianocorsi/{arch}-addon-amazon-orders
 init: false
-startup: application
-boot: auto
 ingress: true
-ingress_port: 8099
 panel_icon: mdi:package-variant-closed
 panel_title: Amazon Orders
 homeassistant_api: true
@@ -24,7 +21,6 @@ ports:
   8098/tcp: 8098
 ports_description:
   8098/tcp: Sign-in page for Amazon (only open it while signing in)
-watchdog: http://[HOST]:[PORT:8099]/api/status
 options:
   sync_preset: careful
   recent_refresh_hours: 6
