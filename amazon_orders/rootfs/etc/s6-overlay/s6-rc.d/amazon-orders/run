@@ -1,0 +1,20 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+#
+# Start the Amazon Orders backend (serves the API, the UI and the ICS feed on :8099).
+# Add-on options are read by the backend itself from /data/options.json;
+# only the sign-in listener settings are passed as environment here.
+
+export AMAZON_ORDERS_DATA_DIR=/data
+export AMAZON_ORDERS_FRONTEND_DIR=/opt/amazon_orders/frontend
+export AMAZON_ORDERS_PORT=8099
+
+if bashio::config.has_value 'login_port'; then
+    export AMAZON_ORDERS_LOGIN_PORT="$(bashio::config 'login_port')"
+fi
+if bashio::config.has_value 'login_host'; then
+    export AMAZON_ORDERS_LOGIN_HOST="$(bashio::config 'login_host')"
+fi
+
+bashio::log.info "Starting Amazon Orders on :8099 (sign-in page on :${AMAZON_ORDERS_LOGIN_PORT:-8098})"
+exec /opt/venv/bin/python -m amazon_orders_ha

@@ -1,0 +1,75 @@
+---
+name: Build add-on image
+
+# Builds and publishes ghcr.io/<owner>/{amd64,aarch64}-addon-amazon-orders.
+# Release: push a tag matching config.yaml's version, e.g. v0.1.0.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      push:
+        description: Push images to GHCR
+        type: boolean
+        default: false
+
+env:
+  ARCHITECTURES: '["amd64", "aarch64"]'
+  IMAGE_NAME: addon-amazon-orders
+
+permissions:
+  contents: read
+
+jobs:
+  init:
+    name: Prepare matrix and version
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read add-on version
+        id: version
+        run: |
+          version="$(sed -n 's/^version: *"\{0,1\}\([^"]*\)"\{0,1\} *$/\1/p' amazon_orders/config.yaml | head -n1)"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" != "v${version}" ]]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match config.yaml version ${version}"
+            exit 1
+          fi
+      - name: Build matrix
+        id: matrix
+        uses: home-assistant/builder/actions/prepare-multi-arch-matrix@2026.09.0
+        with:
+          architectures: ${{ env.ARCHITECTURES }}
+          image-name: ${{ env.IMAGE_NAME }}
+
+  build:
+    name: Build ${{ matrix.arch }}
+    needs: init
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write   # cosign keyless signing
+      packages: write   # push to GHCR
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.init.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (and push) image
+        uses: home-assistant/builder/actions/build-image@2026.09.0
+        with:
+          arch: ${{ matrix.arch }}
+          context: amazon_orders
+          image: ${{ matrix.image }}
+          image-tags: |
+            ${{ needs.init.outputs.version }}
+            latest
+          version: ${{ needs.init.outputs.version }}
+          build-args: |
+            BUILD_FROM=ghcr.io/home-assistant/base-debian:trixie-2026.11.0
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          push: ${{ github.event_name == 'push' || inputs.push }}

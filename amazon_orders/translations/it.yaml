@@ -1,0 +1,45 @@
+---
+configuration:
+  sync_preset:
+    name: Profilo di sincronizzazione
+    description: >-
+      Quanto è prudente l'add-on nel leggere Amazon. "careful" è lento e lascia
+      lunghe pause tra le richieste; "moderate" è più veloce.
+  recent_refresh_hours:
+    name: Aggiornamento ordini recenti (ore)
+    description: Ogni quante ore gli ordini recenti vengono riletti per aggiornare stato e consegna.
+  backfill_until_year:
+    name: Importa fino all'anno
+    description: >-
+      Anno più vecchio da importare (ad esempio 2021). Lascia vuoto per
+      importare tutta la cronologia, un anno alla volta.
+  return_thresholds:
+    name: Soglie promemoria reso (giorni)
+    description: Giorni prima della scadenza del reso in cui viene generato un evento.
+  warranty_thresholds:
+    name: Soglie promemoria garanzia (giorni)
+    description: Giorni prima della scadenza della garanzia in cui viene generato un evento.
+  default_warranty_months:
+    name: Garanzia predefinita (mesi)
+    description: Durata della garanzia legale usata quando non la modifichi per un articolo.
+  mqtt:
+    name: Broker MQTT (facoltativo)
+    description: >-
+      Serve solo se non usi l'add-on Mosquitto. Chiavi: host, port, username,
+      password.
+  domain:
+    name: Dominio Amazon
+    description: Sito Amazon da leggere. Solo amazon.it è testato. Lascia vuoto per amazon.it.
+  log_level:
+    name: Livello di log
+    description: Dettaglio del log. Cookie, password e codici non vengono mai registrati.
+  login_port:
+    name: Porta di accesso
+    description: Porta della pagina di accesso ad Amazon, raggiungibile dalla rete locale mentre accedi.
+  login_host:
+    name: Host di accesso (facoltativo)
+    description: >-
+      Nome host o indirizzo IP di Home Assistant visto dal tuo browser, usato per
+      costruire il link di accesso. Lascia vuoto per rilevarlo in automatico.
+network:
+  8098/tcp: Pagina di accesso ad Amazon (aprila solo durante l'accesso)

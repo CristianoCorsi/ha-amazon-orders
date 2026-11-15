@@ -1,0 +1,10 @@
+---
+# Multi-arch Debian base published by Home Assistant (same tag for both archs).
+build_from:
+  amd64: ghcr.io/home-assistant/base-debian:trixie-2026.11.0
+  aarch64: ghcr.io/home-assistant/base-debian:trixie-2026.11.0
+labels:
+  org.opencontainers.image.title: Amazon Orders
+  org.opencontainers.image.description: Read-only Amazon order history for Home Assistant
+  org.opencontainers.image.source: https://github.com/CristianoCorsi/ha-amazon-orders
+  org.opencontainers.image.licenses: MIT

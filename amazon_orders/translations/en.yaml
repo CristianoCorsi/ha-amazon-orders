@@ -1,0 +1,45 @@
+---
+configuration:
+  sync_preset:
+    name: Sync preset
+    description: >-
+      How careful the add-on is when reading Amazon. "careful" is slow and
+      leaves long pauses between requests; "moderate" is faster.
+  recent_refresh_hours:
+    name: Recent orders refresh (hours)
+    description: How often recent orders are re-read to pick up status and delivery changes.
+  backfill_until_year:
+    name: Backfill until year
+    description: >-
+      Oldest order year to import (for example 2021). Leave empty to import the
+      whole history, one year at a time.
+  return_thresholds:
+    name: Return reminder thresholds (days)
+    description: Days before a return deadline at which an event is fired.
+  warranty_thresholds:
+    name: Warranty reminder thresholds (days)
+    description: Days before a warranty deadline at which an event is fired.
+  default_warranty_months:
+    name: Default warranty (months)
+    description: Legal warranty length used when you do not override it for an item.
+  mqtt:
+    name: MQTT broker (optional)
+    description: >-
+      Only needed if the Mosquitto add-on is not used. Keys: host, port,
+      username, password.
+  domain:
+    name: Amazon domain
+    description: Amazon site to read. Only amazon.it is tested. Leave empty for amazon.it.
+  log_level:
+    name: Log level
+    description: Verbosity of the add-on log. Cookies, passwords and codes are never logged.
+  login_port:
+    name: Sign-in port
+    description: Port of the Amazon sign-in page, reachable from your local network while you sign in.
+  login_host:
+    name: Sign-in host (optional)
+    description: >-
+      Host name or IP address of Home Assistant as seen from your browser, used
+      to build the sign-in link. Leave empty to detect it automatically.
+network:
+  8098/tcp: Sign-in page for Amazon (only open it while signing in)
