@@ -19,3 +19,14 @@ __pycache__/
 .idea/
 .vscode/
 *.swp
+
+# Node / SvelteKit
+node_modules/
+.svelte-kit/
+amazon_orders/frontend/build/
+
+# Local dev data
+dev-data/
+.ruff_cache/
+.pytest_cache/
+docs/screenshots/*.json
