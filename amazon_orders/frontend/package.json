@@ -1,0 +1,38 @@
+{
+  "name": "ha-amazon-orders-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.15.0",
+  "scripts": {
+    "dev": "VITE_MOCK=1 vite --host 0.0.0.0",
+    "dev:api": "VITE_MOCK=0 vite --host 0.0.0.0",
+    "build": "vite build && node scripts/relative-fallback.mjs",
+    "preview": "vite preview --host 0.0.0.0",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run",
+    "test:visual": "node scripts/visual-test.mjs",
+    "test:a11y": "node scripts/a11y-test.mjs",
+    "test:integration": "node scripts/integration-test.mjs",
+    "format": "prettier --write src scripts/*.mjs *.json *.ts *.js"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "^1.56.0",
+    "@sveltejs/adapter-static": "^3.0.10",
+    "@sveltejs/kit": "^2.49.0",
+    "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "@types/node": "^22.0.0",
+    "prettier": "^3.10.1",
+    "prettier-plugin-svelte": "^4.1.1",
+    "svelte": "^5.45.0",
+    "svelte-check": "^4.3.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.2.0",
+    "vitest": "^4.0.0"
+  },
+  "dependencies": {
+    "@fontsource-variable/manrope": "^5.2.8",
+    "@mdi/js": "^7.4.47"
+  }
+}
