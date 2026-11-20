@@ -41,22 +41,23 @@
   );
   const subtitle = $derived(
     screen === 'overview'
-      ? tr('A clearer view of what comes home.', 'I tuoi acquisti, tutto sotto controllo.')
-      : screen === 'orders'
-        ? tr(
-            'Find it. Remember it. Keep track of it.',
-            'Trova un acquisto e ritrova ogni dettaglio.'
-          )
-        : screen === 'deadlines'
-          ? tr('A little ahead of the important dates.', 'Un passo avanti alle date importanti.')
-          : screen === 'statistics'
-            ? tr('The full picture, beyond the parcel.', 'Il quadro completo, oltre il pacco.')
-            : screen === 'settings'
-              ? tr(
-                  'Connected to your home. In your control.',
-                  'Connesso alla tua casa. Sotto il tuo controllo.'
-                )
-              : ''
+      ? tr(
+          'Amazon orders, return windows and spending.',
+          'Ordini Amazon, finestre di reso e spesa.'
+        )
+      : screen === 'orders' && !detailId
+        ? tr('Search your imported order history.', 'Cerca nello storico degli ordini importati.')
+        : screen === 'statistics'
+          ? tr(
+              'Spending after refunds, month by month and year by year.',
+              'Spesa al netto dei rimborsi, per mese e per anno.'
+            )
+          : screen === 'settings'
+            ? tr(
+                'Amazon connection, sync and preferences.',
+                'Connessione Amazon, sincronizzazione e preferenze.'
+              )
+            : ''
   );
   function updateRoute() {
     route = location.hash.slice(1) || '/';
@@ -198,12 +199,14 @@
     </div>
   </header>
   <main id="main-content" tabindex="-1">
-    <div class="page-heading">
+    <div class="page-heading" class:overview-heading={screen === 'overview'}>
       <div>
-        <h1>{title}</h1>
-        <p>{subtitle}</p>
+        <h1>{screen === 'overview' ? tr('Amazon order overview', 'Panoramica ordini Amazon') : title}</h1>
+        {#if subtitle}<p>{subtitle}</p>{/if}
       </div>
-      {#if screen === 'overview'}<a class="sync-pill" href="#/settings"
+      {#if screen === 'overview'}<a class="button secondary overview-search" href="#/orders"
+          ><Icon name="search" size={19} />{tr('Search orders', 'Cerca ordini')}</a
+        ><a class="sync-pill" href="#/settings"
           ><span class="status-dot" class:needs-auth={$auth.status?.state !== 'ok'}></span>{$auth
             .status?.state === 'in_progress'
             ? tr('Sign-in in progress', 'Accesso in corso')
@@ -248,7 +251,11 @@
           {locale}
         />{:else if screen === 'deadlines'}<Deadlines
           {locale}
-          initialKind={route.includes('kind=warranty') ? 'warranty' : 'return'}
+          initialKind={route.includes('kind=warranty')
+            ? 'warranty'
+            : route.includes('kind=all')
+              ? 'all'
+              : 'return'}
         />{:else if screen === 'statistics'}<Statistics
           {locale}
         />{:else if screen === 'settings'}<Settings

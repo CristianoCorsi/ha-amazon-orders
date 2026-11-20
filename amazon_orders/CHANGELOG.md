@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
+
+- Overview: see upcoming return and warranty deadlines first, and open order search directly from the header.
+- Mobile: larger touch targets and a responsive monthly spending chart that displays negative net spending below zero.
 
 - Deadlines: new **All** tab; select deadlines of any type and export them as an `.ics` file, with optional reminders at the configured thresholds.
 - Statistics: year-by-year chart of net spending (with gross and refunds) and the all-time total; the year selector now lists every year with orders, and clicking a bar selects that year.

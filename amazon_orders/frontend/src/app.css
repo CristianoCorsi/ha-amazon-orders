@@ -2833,7 +2833,9 @@ progress::-moz-progress-bar {
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(10px);
   font-size: 12px;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 .selection-bar.active {
   border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
@@ -2967,5 +2969,124 @@ progress::-moz-progress-bar {
 @media (max-width: 700px) {
   .selection-bar:not(.active) .selection-count {
     display: none;
+  }
+}
+
+/* Overview: put actionable dates beside a compact spending statement. */
+.overview-heading > div {
+  margin-inline-end: auto;
+}
+.overview-search {
+  min-height: 44px;
+}
+.overview-grid {
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+}
+.overview-grid > .panel {
+  min-width: 0;
+}
+.overview-spend,
+.overview-deadline-counts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0 24px 14px;
+  border-block: 1px solid var(--border);
+}
+.overview-grid .metric {
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 14px 12px;
+  gap: 9px;
+}
+.overview-grid .metric + .metric {
+  border-inline-start: 1px solid var(--border);
+}
+.overview-grid .metric > strong {
+  font-size: clamp(1.3rem, 2.1vw, 2rem);
+  overflow-wrap: anywhere;
+}
+.overview-grid .metric-label {
+  font-size: 12px;
+}
+.overview-grid .metric > span:last-child {
+  font-size: 11px;
+}
+.overview-grid .metric-link:hover {
+  background: var(--tonal);
+}
+.overview-grid .metric-link:focus-visible {
+  outline-offset: -3px;
+}
+.overview-grid .panel-footer {
+  min-height: 44px;
+}
+.chart-wrap .axis {
+  font-size: 11px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .overview-heading {
+    animation: overview-enter 180ms ease-out both;
+  }
+  .overview-search {
+    transition:
+      transform 140ms ease,
+      background-color 140ms ease;
+  }
+  .overview-search:hover {
+    transform: translateY(-2px);
+  }
+  .overview-search:active {
+    transform: translateY(1px);
+  }
+}
+@keyframes overview-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@media (max-width: 960px) {
+  .overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .overview-heading {
+    flex-wrap: wrap;
+  }
+}
+@media (max-width: 700px) {
+  .overview-heading {
+    gap: 12px;
+  }
+  .overview-spend,
+  .overview-deadline-counts {
+    margin-inline: 14px;
+  }
+  .overview-grid .metric {
+    padding-inline: 8px;
+  }
+  .topbar-actions .icon-button {
+    width: 44px;
+    height: 44px;
+  }
+  .selection-bar label,
+  .selection-bar .button,
+  .view-controls .segmented button {
+    min-height: 44px;
+  }
+  .row-select {
+    min-width: 44px;
+    padding-inline: 0;
+  }
+}
+@media (max-width: 360px) {
+  .deadline-preview-row strong,
+  .order-row-main > strong {
+    display: block;
+    overflow-wrap: anywhere;
+    overflow: visible;
   }
 }

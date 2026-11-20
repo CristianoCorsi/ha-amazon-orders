@@ -53,8 +53,8 @@
   onMount(load);
 </script>
 
-<DataState {busy} {error} {locale} retry={load}>
-  <section class="metrics" aria-label={tr('At a glance', 'A colpo d’occhio')}>
+{#snippet spending()}
+  <div class="overview-spend">
     <div class="metric primary-metric">
       <span class="metric-label"
         ><Icon name="statistics" size={20} />{tr('Spent this month', 'Spesa del mese')}</span
@@ -77,39 +77,36 @@
           )}{:else}{tr('Your purchase history', 'Il tuo storico acquisti')}{/if}</span
       >
     </div>
-    <a class="metric metric-link" href="#/deadlines"
-      ><span class="metric-label"
-        ><Icon name="return" size={20} />{tr('Still returnable', 'Ancora restituibili')}</span
-      ><strong
-        >{status?.counts.returns_open ?? deadlines.filter((d) => d.kind === 'return').length}<Icon
-          name="arrow"
-          size={24}
-        /></strong
-      ><span>{tr('Check before the window closes', 'Controlla prima della scadenza')}</span></a
-    >
-    <a class="metric metric-link" href="#/deadlines?kind=warranty"
-      ><span class="metric-label"
-        ><Icon name="warranty" size={20} />{tr('Warranties ending', 'Garanzie in scadenza')}</span
-      ><strong>{status?.counts.warranties_expiring_90d ?? 0}<Icon name="arrow" size={24} /></strong
-      ><span>{tr('In the next 90 days', 'Nei prossimi 90 giorni')}</span></a
-    >
-  </section>
+  </div>
+{/snippet}
+
+<DataState {busy} {error} {locale} retry={load}>
   <div class="overview-grid">
     <section class="panel attention-panel">
       <div class="section-heading">
-        <div>
-          <h2>{tr('Coming up next', 'Le prossime scadenze')}</h2>
-          <p>
-            {tr(
-              'A little attention now. Fewer surprises later.',
-              'Un controllo oggi, meno sorprese domani.'
-            )}
-          </p>
-        </div>
-        <a
-          href="#/deadlines"
-          class="icon-button"
-          aria-label={tr('All deadlines', 'Tutte le scadenze')}><Icon name="right" /></a
+        <h2>{tr('Upcoming deadlines', 'Prossime scadenze')}</h2>
+      </div>
+      <div class="overview-deadline-counts">
+        <a class="metric metric-link" href="#/deadlines"
+          ><span class="metric-label"
+            ><Icon name="return" size={20} />{tr('Still returnable', 'Ancora restituibili')}</span
+          ><strong
+            >{status?.counts.returns_open ??
+              deadlines.filter((d) => d.kind === 'return').length}<Icon
+              name="arrow"
+              size={24}
+            /></strong
+          ><span>{tr('Check before the window closes', 'Controlla prima della scadenza')}</span></a
+        >
+        <a class="metric metric-link" href="#/deadlines?kind=warranty"
+          ><span class="metric-label"
+            ><Icon name="warranty" size={20} />{tr(
+              'Warranties ending',
+              'Garanzie in scadenza'
+            )}</span
+          ><strong
+            >{status?.counts.warranties_expiring_90d ?? 0}<Icon name="arrow" size={24} /></strong
+          ><span>{tr('In the next 90 days', 'Nei prossimi 90 giorni')}</span></a
         >
       </div>
       {#if deadlines.length}<div class="deadline-preview">
@@ -132,8 +129,8 @@
           <Icon name="success" size={32} />
           <p>{tr('Nothing needs your attention.', 'Nessuna scadenza imminente.')}</p>
         </div>{/if}
-      <a class="text-link panel-footer" href="#/deadlines"
-        >{tr('See your deadlines', 'Vedi le tue scadenze')}<Icon name="right" size={18} /></a
+      <a class="text-link panel-footer" href="#/deadlines?kind=all"
+        >{tr('View all deadlines', 'Vedi tutte le scadenze')}<Icon name="right" size={18} /></a
       >
     </section>
     <section class="panel">
@@ -148,6 +145,7 @@
           aria-label={tr('All statistics', 'Tutte le statistiche')}><Icon name="right" /></a
         >
       </div>
+      {@render spending()}
       <SpendChart
         current={monthly.filter((m) => m.month.startsWith(String(year)))}
         previous={monthly.filter((m) => m.month.startsWith(String(year - 1)))}
