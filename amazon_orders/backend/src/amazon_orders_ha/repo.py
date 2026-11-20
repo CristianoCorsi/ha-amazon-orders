@@ -532,6 +532,26 @@ def stats_summary(conn, year: int | None) -> dict[str, Any]:
     }
 
 
+def stats_yearly(conn) -> dict[str, Any]:
+    """Per-year gross spend, refunds and net spend, plus the all-time total."""
+    rows = conn.execute(
+        f"SELECT CAST(strftime('%Y', o.placed_date) AS INT) AS year, COUNT(*) AS orders,"
+        f" COALESCE(SUM({cost_sql()}),0) AS spend, COALESCE(SUM(o.refund_total),0) AS refunds"
+        " FROM orders o WHERE o.cancelled=0 AND o.placed_date IS NOT NULL GROUP BY 1 ORDER BY 1").fetchall()
+    items = {r["year"]: r["n"] for r in conn.execute(
+        "SELECT CAST(strftime('%Y', o.placed_date) AS INT) AS year, COUNT(*) AS n FROM items i"
+        " JOIN orders o ON o.order_number=i.order_number WHERE o.cancelled=0 GROUP BY 1")}
+    years = [{
+        "year": r["year"], "orders": r["orders"], "items": items.get(r["year"], 0),
+        "spend": round(r["spend"], 2), "refunds": round(r["refunds"], 2),
+        "net_spend": round(r["spend"] - r["refunds"], 2),
+    } for r in rows]
+    total = {k: round(sum(y[k] for y in years), 2) for k in ("spend", "refunds", "net_spend")}
+    total.update(orders=sum(y["orders"] for y in years), items=sum(y["items"] for y in years),
+                 first_year=years[0]["year"] if years else None, last_year=years[-1]["year"] if years else None)
+    return {"years": years, "total": total, "currency": CURRENCY}
+
+
 def _month_of(s: str | None) -> str | None:
     return s[:7] if s else None
 

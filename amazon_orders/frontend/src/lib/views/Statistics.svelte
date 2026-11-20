@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '$lib/api';
-  import type { Item, Monthly, Recurring, Returns, Seller, Summary, Weekday } from '$lib/types';
+  import type { Item, Monthly, Recurring, Returns, Seller, Summary, Weekday, Yearly } from '$lib/types';
   import { date, money, type Locale } from '$lib/i18n';
   import Icon from '$lib/components/Icon.svelte';
   import DataState from '$lib/components/DataState.svelte';
   import ProductImage from '$lib/components/ProductImage.svelte';
   import SpendChart from '$lib/components/SpendChart.svelte';
+  import YearlyChart from '$lib/components/YearlyChart.svelte';
   let { locale }: { locale: Locale } = $props();
   const tr = (en: string, it: string) => (locale === 'it' ? it : en);
   const thisYear = new Date().getFullYear();
@@ -22,6 +23,7 @@
     recurring = $state<Recurring[]>([]),
     returns = $state<Returns | null>(null),
     weekday = $state<Weekday[]>([]),
+    yearly = $state<Yearly | null>(null),
     heatmap = $state<{ month: string; weekday: number; orders: number }[]>([]);
   const weekdays = $derived(
     Array.from({ length: 7 }, (_, i) =>
@@ -33,6 +35,10 @@
       ? ((summary?.net_spend ?? summary?.spend ?? 0) / (previous.net_spend ?? previous.spend) - 1) * 100
       : null
   );
+  // Every year with orders (the history can go back further than 10 years), newest first.
+  const yearOptions = $derived(
+    [...new Set([thisYear, ...(yearly?.years.map((y) => y.year) ?? [])])].sort((a, b) => b - a)
+  );
   const sellerMax = $derived(Math.max(...sellers.map((s) => s.spend), 1));
   const weekdayMax = $derived(Math.max(...weekday.map((w) => w.orders), 1));
   let request = 0;
@@ -41,7 +47,7 @@
     busy = true;
     error = '';
     try {
-      const [s, p, m, se, t, r, re, w] = await Promise.all([
+      const [s, p, m, se, t, r, re, w, yy] = await Promise.all([
         api.summary(year),
         api.summary(year - 1),
         api.monthly(`${year - 1}-01-01`, `${year}-12-31`),
@@ -49,7 +55,8 @@
         api.topItems(year),
         api.recurring(),
         api.returns(year),
-        api.weekday()
+        api.weekday(),
+        api.yearly()
       ]);
       if (current !== request) return;
       summary = s;
@@ -61,6 +68,7 @@
       returns = re;
       weekday = w.items;
       heatmap = w.heatmap;
+      yearly = yy;
     } catch (e) {
       if (current === request) error = (e as Error).message;
     } finally {
@@ -81,7 +89,7 @@
   <label class="year-select"
     ><Icon name="calendar" size={19} /><span class="sr-only">{tr('Year', 'Anno')}</span><select
       bind:value={year}
-      >{#each Array.from({ length: 10 }, (_, i) => thisYear - i) as y}<option value={y}>{y}</option
+      >{#each yearOptions as y}<option value={y}>{y}</option
         >{/each}</select
     ></label
   >
@@ -121,6 +129,59 @@
       ><span>{tr('Across all orders this year', 'Su tutti gli ordini dell’anno')}</span>
     </div>
   </section>
+  {#if yearly?.years.length}<section class="panel full-chart">
+      <div class="section-heading">
+        <div>
+          <h2>{tr('Year by year', 'Anno per anno')}</h2>
+          <p>
+            {tr('Net spending per year. Select a year to explore it.', 'Spesa netta per anno. Seleziona un anno per esplorarlo.')}
+          </p>
+        </div>
+        <span class="chip muted">EUR</span>
+      </div>
+      <div class="all-time">
+        <div>
+          <span class="metric-label"
+            >{tr('All years', 'Tutti gli anni')}
+            {yearly.total.first_year}–{yearly.total.last_year}</span
+          ><strong>{money(yearly.total.net_spend, locale)}</strong>
+        </div>
+        <p>
+          {tr('Orders', 'Ordini')}
+          {money(yearly.total.spend, locale)} − {tr('refunds', 'rimborsi')}
+          {money(yearly.total.refunds, locale)} · {yearly.total.orders}
+          {tr('orders', 'ordini')} · {yearly.total.items}
+          {tr('items', 'articoli')}
+        </p>
+      </div>
+      <YearlyChart years={yearly.years} selected={year} {locale} onselect={(y) => (year = y)} />
+      <details class="chart-data">
+        <summary>{tr('View chart data', 'Visualizza i dati del grafico')}</summary>
+        <div class="table-scroll">
+          <table>
+            <caption class="sr-only">{tr('Spending per year', 'Spesa per anno')}</caption><thead
+              ><tr
+                ><th>{tr('Year', 'Anno')}</th><th>{tr('Orders', 'Ordini')}</th><th
+                  >{tr('Gross', 'Lordo')}</th
+                ><th>{tr('Refunds', 'Rimborsi')}</th><th>{tr('Net', 'Netto')}</th></tr
+              ></thead
+            ><tbody
+              >{#each yearly.years as y (y.year)}<tr
+                  ><td>{y.year}</td><td>{y.orders}</td><td>{money(y.spend, locale)}</td><td
+                    >{money(y.refunds, locale)}</td
+                  ><td>{money(y.net_spend, locale)}</td></tr
+                >{/each}<tr class="total-row"
+                ><td>{tr('Total', 'Totale')}</td><td>{yearly.total.orders}</td><td
+                  >{money(yearly.total.spend, locale)}</td
+                ><td>{money(yearly.total.refunds, locale)}</td><td
+                  >{money(yearly.total.net_spend, locale)}</td
+                ></tr
+              ></tbody
+            >
+          </table>
+        </div>
+      </details>
+    </section>{/if}
   <section class="panel full-chart">
     <div class="section-heading">
       <div>

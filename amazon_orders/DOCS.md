@@ -129,6 +129,14 @@ actions:
         url: "{{ trigger.event.data.order_url }}"
 ```
 
+## Export deadlines to your calendar
+
+In **Deadlines**, tick the deadlines you want (or **Select all shown**), choose whether to add
+**Reminders**, then **Export .ics**. The file imports into Google Calendar, Apple Calendar,
+Outlook and others. Reminders follow the add-on thresholds (`return_thresholds`,
+`warranty_thresholds`) and fire at 09:00 on each of those days. Unlike the feed below, an exported
+file is a one-off copy: it does not update if a deadline changes.
+
 ## Calendar (ICS)
 
 The add-on serves an all-day-event calendar with return and warranty deadlines at

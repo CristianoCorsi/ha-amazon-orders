@@ -351,6 +351,24 @@ export async function mockRequest(path: string, options: RequestInit): Promise<u
       currency: 'EUR',
       items: deadlines(p.get('kind') || 'all', Number(p.get('within_days') || 365))
     };
+  if (route === 'stats/yearly') {
+    const ys = [...new Set(orders.map((o) => Number(o.placed_date.slice(0, 4))))].sort();
+    const rows = ys.map((yy) => {
+      const s = summary(yy);
+      return { year: yy, orders: s.orders, items: s.items, spend: s.spend, refunds: s.refunds, net_spend: s.net_spend };
+    });
+    const sum = (k: 'spend' | 'refunds' | 'net_spend' | 'orders' | 'items') =>
+      rows.reduce((t, r) => t + r[k], 0);
+    return {
+      currency: 'EUR',
+      years: rows,
+      total: {
+        spend: sum('spend'), refunds: sum('refunds'), net_spend: sum('net_spend'),
+        orders: sum('orders'), items: sum('items'),
+        first_year: ys[0] ?? null, last_year: ys.at(-1) ?? null
+      }
+    };
+  }
   if (route === 'stats/summary') return summary(y);
   if (route === 'stats/monthly') {
     const from = p.get('from') || `${year - 1}-01-01`;
@@ -477,4 +495,13 @@ export function mockCsv(filters: Filters): string {
       )
       .join('\r\n')
   );
+}
+
+export async function mockIcs(selection: { item_id: number; kind: string }[]): Promise<Blob> {
+  const events = selection
+    .map((s) => `BEGIN:VEVENT\r\nUID:demo-${s.item_id}-${s.kind}\r\nSUMMARY:Demo ${s.kind}\r\nEND:VEVENT`)
+    .join('\r\n');
+  return new Blob([`BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${events}\r\nEND:VCALENDAR\r\n`], {
+    type: 'text/calendar'
+  });
 }

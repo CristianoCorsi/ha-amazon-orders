@@ -216,6 +216,8 @@ GET   api/settings                   read-only view of add-on options relevant t
 GET   api/auth/status                {state, method, expires_hint, login_url?}
 POST  api/auth/start                 {url}  (login proxy URL, see §9)
 POST  api/auth/logout                {ok, deregistered?}
+GET   api/stats/yearly             per-year spend, refunds, net_spend, orders, items + all-time total
+POST  api/deadlines/export.ics     {selection: [{item_id, kind}], reminders} -> .ics attachment
 GET   calendar.ics
 ```
 

@@ -138,3 +138,24 @@ export interface Filters {
   page?: number;
   page_size?: number;
 }
+export interface YearRow {
+  year: number;
+  orders: number;
+  items: number;
+  spend: number;
+  refunds: number;
+  net_spend: number;
+}
+export interface Yearly {
+  currency: string;
+  years: YearRow[];
+  total: {
+    spend: number;
+    refunds: number;
+    net_spend: number;
+    orders: number;
+    items: number;
+    first_year: number | null;
+    last_year: number | null;
+  };
+}

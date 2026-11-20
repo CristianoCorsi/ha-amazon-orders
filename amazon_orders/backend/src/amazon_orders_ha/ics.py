@@ -29,18 +29,35 @@ def _fold(line: str) -> list[str]:
     return [out[0]] + [" " + p for p in out[1:]]
 
 
+def _alarm(days_before: int, summary: str) -> list[str]:
+    """Reminder at 09:00 local time, ``days_before`` days before an all-day event."""
+    trigger = "PT9H" if days_before <= 0 else f"-PT{days_before * 24 - 9}H"
+    return ["BEGIN:VALARM", "ACTION:DISPLAY", f"TRIGGER;RELATED=START:{trigger}",
+            "DESCRIPTION:" + _esc(summary), "END:VALARM"]
+
+
 def build_ics(conn, today: date, now: datetime | None = None, months: int = 24, domain: str = "amazon.it",
-              closed_grace_days: int = 30) -> str:
+              closed_grace_days: int = 30, selection: set[tuple[int, str]] | None = None,
+              alarms: dict[str, list[int]] | None = None, feed: bool = True) -> str:
+    """Calendar of deadlines.
+
+    ``selection`` limits it to ``(item_id, kind)`` pairs (one-off export); ``alarms`` adds reminders per kind,
+    in days before the deadline. ``feed`` adds the refresh hint used by subscribed calendars.
+    """
     stamp = (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%SZ")
     lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//ha-amazon-orders//EN", "CALSCALE:GREGORIAN",
-             "X-WR-CALNAME:Amazon Orders", "REFRESH-INTERVAL;VALUE=DURATION:PT6H"]
+             "X-WR-CALNAME:Amazon Orders"]
+    if feed:
+        lines.append("REFRESH-INTERVAL;VALUE=DURATION:PT6H")
     for r in conn.execute(ITEM_QUERY + " ORDER BY i.id").fetchall():
         row = dict(r)
         dls = compute_deadlines(row, today, months)
         for kind, dl in dls.items():
+            if selection is not None and (row["id"], kind) not in selection:
+                continue
             if not dl["deadline"] or dl["state"] in ("none", "unknown"):
                 continue
-            if dl["days_left"] < -closed_grace_days:
+            if selection is None and dl["days_left"] < -closed_grace_days:
                 continue
             d = date.fromisoformat(dl["deadline"])
             label = "Return deadline" if kind == "return" else "Warranty expires"
@@ -59,8 +76,11 @@ def build_ics(conn, today: date, now: datetime | None = None, months: int = 24, 
                 "SUMMARY:" + _esc(f"{label}: {title}"),
                 "DESCRIPTION:" + _esc("\n".join(desc)),
                 "TRANSP:TRANSPARENT",
-                "END:VEVENT",
             ]
+            for n in sorted(set((alarms or {}).get(kind, [])), reverse=True):
+                if (d - today).days >= n:  # skip reminders already in the past
+                    ev += _alarm(n, f"{label}: {title}")
+            ev.append("END:VEVENT")
             for e in ev:
                 lines.extend(_fold(e))
     lines.append("END:VCALENDAR")

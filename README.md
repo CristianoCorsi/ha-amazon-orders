@@ -27,8 +27,9 @@ All screenshots use synthetic demo data. Regenerate them with `pnpm readme:image
 - **Return deadlines**: the return window date reported by Amazon for each item (real windows vary from 15 to 85+ days).
 - **Warranty deadlines**: the 2-year legal warranty end date, from the delivery date (or the order date when the delivery date is unknown, so the deadline is never later than the real one), with per-item overrides for longer manufacturer warranties.
 - **Local annotations**: mark items as kept, to return or returned, and add notes. Stored only in the add-on.
-- **Spending statistics**: totals per year and month with year-over-year comparison, per seller, top items, recurring purchases, returns and refunds, shipping paid, plus CSV export.
+- **Spending statistics**: net spending (orders minus refunds), a year-by-year trend with the all-time total, monthly totals with year-over-year comparison, per seller, top items, recurring purchases, returns and refunds, shipping paid, plus CSV export.
 - **Home Assistant integration**: `amazon_orders_deadline` events at configurable thresholds, summary sensors via MQTT discovery, and an ICS calendar of deadlines.
+- **Calendar export**: select any return or warranty deadlines and download them as an `.ics` file, with optional reminders, to import into your own calendar.
 - **Gentle sync**: slow, resumable backfill of your history with a persistent cache, so Amazon is never hammered. Recent orders refresh every few hours.
 - **Sign in once**: you sign in on Amazon's own page (password + 2FA); the add-on registers a device and renews the session by itself.
 - **Native look**: follows your Home Assistant theme (light/dark) and language (English, Italian).

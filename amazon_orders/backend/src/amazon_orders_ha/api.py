@@ -33,6 +33,16 @@ def _err(status: int, code: str, message: str) -> JSONResponse:
     return JSONResponse({"error": {"code": code, "message": message}}, status_code=status)
 
 
+class DeadlineRef(BaseModel):
+    item_id: int
+    kind: Literal["return", "warranty"]
+
+
+class DeadlineExport(BaseModel):
+    selection: list[DeadlineRef] = Field(max_length=5000)
+    reminders: bool = True
+
+
 class StatePatch(BaseModel):
     status: Literal["none", "keep", "to_return", "returned"] | None = None
     note: str | None = Field(default=None, max_length=4000)
@@ -233,6 +243,10 @@ def create_app(rt: Runtime, background: bool = False) -> FastAPI:
     def st_monthly(c: Conn, from_: Annotated[str | None, Query(alias="from")] = None, to: str | None = None):
         return repo.stats_monthly(c, from_, to, today())
 
+    @app.get("/api/stats/yearly")
+    def st_yearly(c: Conn):
+        return repo.stats_yearly(c)
+
     @app.get("/api/stats/sellers")
     def st_sellers(c: Conn, year: int | None = None, limit: Annotated[int, Query(ge=1, le=200)] = 10):
         return repo.stats_sellers(c, year, limit)
@@ -287,6 +301,19 @@ def create_app(rt: Runtime, background: bool = False) -> FastAPI:
     def calendar(c: Conn):
         text = build_ics(c, today(), datetime.now(UTC), opts.default_warranty_months, opts.domain)
         return Response(text, media_type="text/calendar; charset=utf-8")
+
+    @app.post("/api/deadlines/export.ics")
+    def export_deadlines(body: DeadlineExport, request: Request, c: Conn):
+        _same_origin(request)
+        selection = {(s.item_id, s.kind) for s in body.selection}
+        if not selection:
+            raise ApiError(400, "empty_selection", "select at least one deadline")
+        alarms = ({"return": opts.return_thresholds, "warranty": opts.warranty_thresholds}
+                  if body.reminders else None)
+        text = build_ics(c, today(), datetime.now(UTC), opts.default_warranty_months, opts.domain,
+                         selection=selection, alarms=alarms, feed=False)
+        return Response(text, media_type="text/calendar; charset=utf-8",
+                        headers={"Content-Disposition": 'attachment; filename="amazon-deadlines.ics"'})
 
     @app.get("/api/{rest:path}")
     def api_404(rest: str):

@@ -2816,3 +2816,156 @@ progress::-moz-progress-bar {
 .refund-amount {
   color: var(--success);
 }
+
+/* Deadlines: selection and .ics export */
+.selection-bar {
+  position: sticky;
+  top: 8px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+  padding: 12px 16px;
+  margin-bottom: 22px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(10px);
+  font-size: 12px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.selection-bar.active {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--primary) 12%, transparent);
+}
+.selection-bar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.selection-count {
+  flex: 1;
+  color: var(--text-muted);
+  min-width: 10ch;
+}
+.selection-bar.active .selection-count {
+  color: var(--text);
+  font-weight: 600;
+}
+.selection-bar input[type='checkbox'],
+.row-select input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+.timeline-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
+.timeline-item + .timeline-item {
+  border-top: 1px solid var(--border);
+}
+.timeline-item.selected {
+  background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+}
+.row-select {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  padding-left: 18px;
+  cursor: pointer;
+}
+.timeline-item .timeline-row {
+  padding-left: 14px;
+}
+.kind-tag {
+  font-style: normal;
+  font-weight: 600;
+  margin-right: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+.kind-tag.warranty {
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: var(--warning);
+}
+@media (max-width: 700px) {
+  .selection-bar {
+    top: 4px;
+    gap: 10px 12px;
+    padding: 10px 12px;
+  }
+  .selection-bar .button.primary {
+    margin-left: auto;
+  }
+  .row-select {
+    padding-left: 10px;
+  }
+  .timeline-item .timeline-row {
+    padding-left: 8px;
+  }
+}
+
+.all-time {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 6px 20px;
+  padding: 0 24px 10px;
+  margin-top: -6px;
+}
+@media (max-width: 700px) {
+  .all-time {
+    padding: 0 19px 8px;
+  }
+  .all-time strong {
+    font-size: 24px;
+  }
+}
+.all-time > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.all-time strong {
+  font-size: 28px;
+  letter-spacing: -0.02em;
+}
+.all-time p {
+  margin: 0 0 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.total-row td {
+  font-weight: 700;
+  border-top: 2px solid var(--border);
+}
+
+/* Three deadline tabs + period selector do not fit one row on a phone. */
+@media (max-width: 700px) {
+  .view-controls:has(.segmented) {
+    flex-wrap: wrap;
+  }
+  .view-controls:has(.segmented) > .segmented {
+    flex: 1 1 100%;
+  }
+  .view-controls:has(.segmented) > .segmented button {
+    flex: 1;
+    padding-inline: 8px;
+  }
+  .view-controls:has(.segmented) > .sort-control {
+    margin-left: auto;
+  }
+}
+@media (max-width: 700px) {
+  .selection-bar:not(.active) .selection-count {
+    display: none;
+  }
+}

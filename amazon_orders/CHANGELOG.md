@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Deadlines: new **All** tab; select deadlines of any type and export them as an `.ics` file, with optional reminders at the configured thresholds.
+- Statistics: year-by-year chart of net spending (with gross and refunds) and the all-time total; the year selector now lists every year with orders, and clicking a bar selects that year.
+
 ## 0.1.8
 
 - Fix every item appearing twice (and twice in the warranty deadlines): the library reports each product both in its shipment and in the order item list. They are now merged, and a database migration merges the existing duplicates, keeping your notes and statuses.

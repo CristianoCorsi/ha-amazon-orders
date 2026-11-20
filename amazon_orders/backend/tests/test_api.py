@@ -307,3 +307,36 @@ def test_json_endpoints_work_with_ingress_header(client):
 
 def test_today_helper_consistency(seeded_rt):
     assert seeded_rt.today() == TODAY and TODAY - timedelta(days=1) < date(2026, 11, 15)
+
+
+def test_export_selected_deadlines_as_ics(client):
+    dls = get(client, "/api/deadlines?kind=all&within_days=3650").json()["deadlines"]
+    picked = [d for d in dls if d["kind"] == "return"][:2] + [d for d in dls if d["kind"] == "warranty"][:1]
+    assert len(picked) == 3
+    body = {"selection": [{"item_id": d["item"]["id"], "kind": d["kind"]} for d in picked], "reminders": True}
+    r = client.post("/api/deadlines/export.ics", json=body)
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("text/calendar")
+    assert "attachment" in r.headers["content-disposition"]
+    assert r.text.count("BEGIN:VEVENT") == 3
+    assert "REFRESH-INTERVAL" not in r.text
+    assert "BEGIN:VALARM" in r.text
+    no_alarms = client.post("/api/deadlines/export.ics", json={**body, "reminders": False}).text
+    assert "BEGIN:VALARM" not in no_alarms and no_alarms.count("BEGIN:VEVENT") == 3
+
+
+def test_export_requires_a_selection_and_same_origin(client):
+    assert client.post("/api/deadlines/export.ics", json={"selection": []}).status_code == 400
+    r = client.post("/api/deadlines/export.ics", headers={"Origin": "https://evil.test"},
+                    json={"selection": [{"item_id": 1, "kind": "return"}]})
+    assert r.status_code == 403
+
+
+def test_yearly_trend_and_all_time_total(client):
+    y = get(client, "/api/stats/yearly").json()
+    years = y["years"]
+    assert len(years) >= 5 and [r["year"] for r in years] == sorted(r["year"] for r in years)
+    assert y["total"]["spend"] == pytest.approx(sum(r["spend"] for r in years), abs=0.05)
+    assert y["total"]["net_spend"] == pytest.approx(y["total"]["spend"] - y["total"]["refunds"], abs=0.05)
+    this_year = get(client, f"/api/stats/summary?year={years[-1]['year']}").json()
+    assert years[-1]["spend"] == this_year["spend"]

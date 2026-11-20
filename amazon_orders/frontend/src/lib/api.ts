@@ -10,7 +10,8 @@ import type {
   Settings,
   Status,
   Summary,
-  Weekday
+  Weekday,
+  Yearly
 } from './types';
 import {
   normalizeDeadlines,
@@ -157,6 +158,29 @@ export const api = {
   recent: () => post<void>('sync/recent'),
   backfill: (action: 'start' | 'pause') => post<void>('sync/backfill', { action }),
   purge: (scope: string) => post<void>('cache/purge', { scope }),
+  yearly: () => request<Yearly>('stats/yearly'),
+  /** Selected deadlines as an .ics file (one-off import, optionally with reminders). */
+  async exportDeadlines(
+    selection: { item_id: number; kind: 'return' | 'warranty' }[],
+    reminders: boolean
+  ): Promise<Blob> {
+    if (isMock) return (await import('./mock')).mockIcs(selection);
+    let response: Response;
+    try {
+      response = await fetch('api/deadlines/export.ics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selection, reminders })
+      });
+    } catch {
+      throw new ApiError('network', 'The add-on could not be reached. Check your connection and try again.');
+    }
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      throw new ApiError(body?.error?.code ?? String(response.status), body?.error?.message ?? response.statusText);
+    }
+    return response.blob();
+  },
   exportUrl: (filters: Filters = {}) => `api/export.csv${queryString(filters)}`,
   async exportCsv(filters: Filters = {}) {
     if (isMock) {
