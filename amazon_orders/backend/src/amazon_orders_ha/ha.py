@@ -69,10 +69,12 @@ def compute_sensor_values(conn: sqlite3.Connection, today: date, options: Option
     open_warr.sort(key=lambda x: x["deadline"])
     month = f"{today:%Y-%m}"
     spend_m = conn.execute(
-        "SELECT COALESCE(SUM(grand_total),0) s FROM orders WHERE cancelled=0 AND strftime('%Y-%m',placed_date)=?",
+        f"SELECT COALESCE(SUM({repo.cost_sql()} - COALESCE(o.refund_total,0)),0) s FROM orders o"
+        " WHERE o.cancelled=0 AND strftime('%Y-%m',o.placed_date)=?",
         (month,)).fetchone()["s"]
     spend_y = conn.execute(
-        "SELECT COALESCE(SUM(grand_total),0) s FROM orders WHERE cancelled=0 AND strftime('%Y',placed_date)=?",
+        f"SELECT COALESCE(SUM({repo.cost_sql()} - COALESCE(o.refund_total,0)),0) s FROM orders o"
+        " WHERE o.cancelled=0 AND strftime('%Y',o.placed_date)=?",
         (f"{today.year}",)).fetchone()["s"]
     counts = repo.counts(conn)
     st = status or {}

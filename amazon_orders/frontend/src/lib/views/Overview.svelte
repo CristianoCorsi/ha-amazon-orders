@@ -19,11 +19,14 @@
   let monthly = $state<Monthly[]>([]),
     deadlines = $state<Deadline[]>([]),
     orders = $state<Order[]>([]);
-  const monthSpend = $derived(
-    monthly.find((m) => m.month === new Date().toLocaleDateString('en-CA').slice(0, 7))?.spend ?? 0
+  const net = (s: { spend: number; net_spend?: number } | null | undefined) =>
+    s ? (s.net_spend ?? s.spend) : 0;
+  const monthRow = $derived(
+    monthly.find((m) => m.month === new Date().toLocaleDateString('en-CA').slice(0, 7)) ?? null
   );
+  const monthSpend = $derived(monthRow ? (monthRow.net_spend ?? monthRow.spend) : 0);
   const change = $derived(
-    previousSummary?.spend ? ((summary?.spend ?? 0) / previousSummary.spend - 1) * 100 : null
+    net(previousSummary) ? (net(summary) / net(previousSummary) - 1) * 100 : null
   );
   async function load() {
     busy = true;
@@ -63,7 +66,7 @@
     </div>
     <div class="metric">
       <span class="metric-label">{tr('Spent this year', 'Spesa dell’anno')}</span><strong
-        >{money(summary?.spend, locale)}</strong
+        >{money(net(summary), locale)}</strong
       ><span
         >{#if change !== null}<Icon
             name={change < 0 ? 'decrease' : 'increase'}

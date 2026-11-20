@@ -48,6 +48,30 @@ def set_state(conn: sqlite3.Connection, key: str, value: Any) -> None:
 # --------------------------------------------------------------------------- upsert
 
 
+def cost_sql(a: str = "o") -> str:
+    """Full cost of an order as SQL.
+
+    Amazon's "Grand Total" is what was charged to the card AFTER the Amazon/gift-card balance, so an order paid
+    with balance (often from earlier refunds) shows 0. The real cost adds the balance back. If neither the total
+    nor the balance explain the order (balance label not parsed), fall back to items + shipping - coupons.
+    """
+    paid = f"(COALESCE({a}.grand_total,0) + COALESCE({a}.gift_card,0))"
+    return (f"(CASE WHEN {paid} < 0.005 AND {a}.subtotal IS NOT NULL"
+            f" THEN {a}.subtotal + COALESCE({a}.shipping_total,0) - COALESCE({a}.coupon_savings,0)"
+            f" ELSE {paid} END)")
+
+
+def order_total(row: Any) -> float | None:
+    """Python twin of :func:`cost_sql` for one row (None when Amazon gave no amounts, e.g. cancelled)."""
+    gt, gc = row["grand_total"], row["gift_card"]
+    if gt is None and gc is None and row["subtotal"] is None:
+        return None
+    paid = (gt or 0) + (gc or 0)
+    if paid < 0.005 and row["subtotal"] is not None:
+        paid = row["subtotal"] + (row["shipping_total"] or 0) - (row["coupon_savings"] or 0)
+    return round(paid, 2)
+
+
 def get_order_meta(conn: sqlite3.Connection, order_number: str) -> sqlite3.Row | None:
     return conn.execute(
         "SELECT order_number, list_fingerprint, details_fetched_at, placed_date FROM orders WHERE order_number=?",
@@ -257,10 +281,10 @@ _ITEM_SORT = {
 _ORDER_SORT = {
     "date_desc": "o.placed_date DESC, o.order_number DESC",
     "date_asc": "o.placed_date ASC, o.order_number ASC",
-    "total_desc": "o.grand_total DESC, o.order_number DESC",
-    "total_asc": "o.grand_total ASC, o.order_number ASC",
-    "price_desc": "o.grand_total DESC, o.order_number DESC",
-    "price_asc": "o.grand_total ASC, o.order_number ASC",
+    "total_desc": cost_sql() + " DESC, o.order_number DESC",
+    "total_asc": cost_sql() + " ASC, o.order_number ASC",
+    "price_desc": cost_sql() + " DESC, o.order_number DESC",
+    "price_asc": cost_sql() + " ASC, o.order_number ASC",
 }
 
 
@@ -348,10 +372,10 @@ def _order_where(f: Filters) -> tuple[str, list[Any]]:
             )
             a.append(f.status)
     if f.min is not None:
-        w.append("o.grand_total >= ?")
+        w.append(cost_sql() + " >= ?")
         a.append(f.min)
     if f.max is not None:
-        w.append("o.grand_total <= ?")
+        w.append(cost_sql() + " <= ?")
         a.append(f.max)
     return " AND ".join(w), a
 
@@ -371,7 +395,8 @@ def list_orders(conn, f: Filters) -> dict[str, Any]:
     total = conn.execute(f"SELECT COUNT(*) c FROM orders o WHERE {where}", args).fetchone()["c"]
     order = _ORDER_SORT.get(f.sort, _ORDER_SORT["date_desc"])
     rows = conn.execute(
-        f"SELECT o.order_number, o.placed_date, o.grand_total, o.cancelled, o.refund_total, o.details_link,"
+        f"SELECT o.order_number, o.placed_date, o.grand_total, o.gift_card, o.subtotal, o.shipping_total,"
+        f" o.coupon_savings, o.cancelled, o.refund_total, o.details_link,"
         f" o.details_fetched_at FROM orders o WHERE {where} ORDER BY {order} LIMIT ? OFFSET ?",
         (*args, f.page_size, (f.page - 1) * f.page_size),
     ).fetchall()
@@ -388,7 +413,9 @@ def list_orders(conn, f: Filters) -> dict[str, Any]:
         out.append({
             "order_number": r["order_number"],
             "placed_date": r["placed_date"],
+            "order_total": order_total(r),
             "grand_total": r["grand_total"],
+            "paid_with_balance": r["gift_card"],
             "refund_total": r["refund_total"],
             "cancelled": bool(r["cancelled"]),
             "status": order_status(bool(r["cancelled"]), ships),
@@ -411,6 +438,8 @@ def get_order(conn, order_number: str, today: date, months: int = 24) -> dict[st
     d = {k: o[k] for k in o.keys() if k != "raw_json"}
     d["cancelled"] = bool(d["cancelled"])
     d["status"] = order_status(d["cancelled"], ships)
+    d["order_total"] = order_total(o)
+    d["paid_with_balance"] = o["gift_card"]
     return {
         "order": d,
         "shipments": [dict(s) for s in ships],
@@ -479,7 +508,7 @@ def _year_clause(year: int | None, col: str = "o.placed_date") -> tuple[str, lis
 def stats_summary(conn, year: int | None) -> dict[str, Any]:
     yc, ya = _year_clause(year)
     r = conn.execute(
-        "SELECT COUNT(*) AS orders, COALESCE(SUM(grand_total),0) AS spend,"
+        f"SELECT COUNT(*) AS orders, COALESCE(SUM({cost_sql()}),0) AS spend,"
         " COALESCE(SUM(shipping_total),0) AS shipping, COALESCE(SUM(refund_total),0) AS refunds,"
         " COALESCE(SUM(gift_card),0) AS gift_card, COALESCE(SUM(coupon_savings),0) AS coupons"
         f" FROM orders o WHERE o.cancelled=0{yc}", ya).fetchone()
@@ -488,11 +517,14 @@ def stats_summary(conn, year: int | None) -> dict[str, Any]:
         f"SELECT COUNT(*) c FROM items i JOIN orders o ON o.order_number=i.order_number"
         f" WHERE o.cancelled=0{yc}", ya).fetchone()["c"]
     priced = conn.execute(
-        f"SELECT COUNT(*) c FROM orders o WHERE o.cancelled=0 AND o.grand_total IS NOT NULL{yc}", ya
+        f"SELECT COUNT(*) c FROM orders o WHERE o.cancelled=0 AND (o.grand_total IS NOT NULL"
+        f" OR o.gift_card IS NOT NULL OR o.subtotal IS NOT NULL){yc}", ya
     ).fetchone()["c"]
     return {
         "year": year, "currency": CURRENCY,
-        "spend": round(r["spend"], 2), "orders": r["orders"], "items": items,
+        # spend = gross cost of the orders; net_spend subtracts refunds (attributed to the order's date).
+        "spend": round(r["spend"], 2), "net_spend": round(r["spend"] - r["refunds"], 2),
+        "orders": r["orders"], "items": items,
         "avg_order": round(r["spend"] / priced, 2) if priced else 0,
         "shipping_paid": round(r["shipping"], 2), "refunds": round(r["refunds"], 2),
         "cancelled": cancelled, "gift_card_used": round(r["gift_card"], 2),
@@ -515,14 +547,20 @@ def stats_monthly(conn, date_from: str | None, date_to: str | None, today: date)
     rows = {
         r["m"]: r
         for r in conn.execute(
-            "SELECT strftime('%Y-%m', placed_date) AS m, COALESCE(SUM(grand_total),0) AS spend, COUNT(*) AS n"
-            " FROM orders WHERE cancelled=0 AND placed_date IS NOT NULL GROUP BY m")
+            f"SELECT strftime('%Y-%m', o.placed_date) AS m, COALESCE(SUM({cost_sql()}),0) AS spend,"
+            " COALESCE(SUM(o.refund_total),0) AS refunds, COUNT(*) AS n"
+            " FROM orders o WHERE o.cancelled=0 AND o.placed_date IS NOT NULL GROUP BY m")
     }
     months, (y, m) = [], (int(start[:4]), int(start[5:7]))
     while f"{y:04d}-{m:02d}" <= end:
         key = f"{y:04d}-{m:02d}"
         r = rows.get(key)
-        months.append({"month": key, "spend": round(r["spend"], 2) if r else 0, "orders": r["n"] if r else 0})
+        months.append({
+            "month": key, "spend": round(r["spend"], 2) if r else 0,
+            "refunds": round(r["refunds"], 2) if r else 0,
+            "net_spend": round(r["spend"] - r["refunds"], 2) if r else 0,
+            "orders": r["n"] if r else 0,
+        })
         y, m = (y, m + 1) if m < 12 else (y + 1, 1)
     return {"months": months, "currency": CURRENCY}
 
@@ -633,7 +671,8 @@ EXPORT_COLUMNS = [
 def export_csv(conn, f: Filters, today: date, domain: str, months: int = 24) -> str:
     f = Filters(**{**f.__dict__, "page": 1, "page_size": 10**9})
     data = list_items(conn, f, today, months)["items"]
-    totals = {r["order_number"]: r["grand_total"] for r in conn.execute("SELECT order_number, grand_total FROM orders")}
+    totals = {r["order_number"]: order_total(r) for r in conn.execute(
+        "SELECT order_number, grand_total, gift_card, subtotal, shipping_total, coupon_savings FROM orders")}
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(EXPORT_COLUMNS)

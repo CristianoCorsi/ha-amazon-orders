@@ -29,7 +29,11 @@ export interface Shipment {
 export interface Order {
   order_number: string;
   placed_date: string;
+  /** Full cost of the order, including what was paid with Amazon/gift-card balance. */
+  order_total: number | null;
+  /** Amount charged to the payment card (Amazon's "Grand Total"). */
   grand_total: number | null;
+  paid_with_balance: number | null;
   shipping_total: number | null;
   refund_total: number | null;
   cancelled: boolean;
@@ -65,6 +69,7 @@ export interface Summary {
   currency: string;
   year: number;
   spend: number;
+  net_spend: number;
   orders: number;
   items: number;
   avg_order: number;
@@ -77,6 +82,8 @@ export interface Summary {
 export interface Monthly {
   month: string;
   spend: number;
+  refunds?: number;
+  net_spend?: number;
   orders: number;
 }
 export interface Seller {

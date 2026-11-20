@@ -51,9 +51,18 @@
       <div class="order-summary-total">
         <span>{tr('Order total', 'Totale ordine')}</span><strong
           class:cancelled-amount={order.cancelled}
-          class:struck-amount={order.cancelled && order.grand_total != null}
-          >{orderAmount(order.grand_total, order.cancelled, locale)}</strong
+          class:struck-amount={order.cancelled && order.order_total != null}
+          >{orderAmount(order.order_total, order.cancelled, locale)}</strong
         ><small>{tr('Shipping', 'Spedizione')}: {money(order.shipping_total, locale)}</small>
+        {#if order.paid_with_balance}<small
+            >{tr('Paid with Amazon balance', 'Pagato con saldo Amazon')}: {money(
+              order.paid_with_balance,
+              locale
+            )}</small
+          >{/if}
+        {#if order.refund_total}<small class="refund-amount"
+            >{tr('Refunded', 'Rimborsato')}: −{money(order.refund_total, locale)}</small
+          >{/if}
       </div>
     </div>
     {#each order.items as item (item.id)}<ItemEditor

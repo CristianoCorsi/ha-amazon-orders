@@ -35,7 +35,7 @@
   <strong
     class="order-price"
     class:cancelled-amount={order.cancelled}
-    class:struck-amount={order.cancelled && order.grand_total != null}
-    >{orderAmount(order.grand_total, order.cancelled, locale)}</strong
+    class:struck-amount={order.cancelled && order.order_total != null}
+    >{orderAmount(order.order_total, order.cancelled, locale)}</strong
   ><span class="row-chevron"><Icon name="chevron" size={20} /></span>
 </a>

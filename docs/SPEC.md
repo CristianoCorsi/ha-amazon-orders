@@ -112,6 +112,15 @@ FTS5 virtual table over `items.title`, `items.seller`, `orders.order_number` for
 - Items with status `returned`, or in cancelled orders, have no active deadlines.
 - Thresholds (options): `return_thresholds: [7, 2, 0]`, `warranty_thresholds: [180, 90, 60, 30, 14, 5]`.
 
+## 7.1 Order cost and spending
+
+- Amazon's "Grand Total" (`grand_total`) is what was charged to the card AFTER the Amazon/gift-card balance, so
+  an order paid with balance shows 0. The **order cost** (`order_total`) adds the balance back
+  (`grand_total + gift_card`); if both are 0 but an item subtotal exists, it falls back to
+  subtotal + shipping - coupons.
+- Spending: `spend` = sum of order costs (gross); `net_spend` = `spend` - `refund_total`, with refunds attributed
+  to the original order's date. Overview, charts and the spend sensors use the net value.
+
 ## 8. Home Assistant interface
 
 The user writes their own automations; the add-on only exposes data.
@@ -128,7 +137,7 @@ The user writes their own automations; the add-on only exposes data.
    - `sensor.amazon_orders_next_return_deadline` (timestamp/date)
    - `sensor.amazon_orders_warranties_expiring_90d` (count)
    - `sensor.amazon_orders_next_warranty_deadline` (date)
-   - `sensor.amazon_orders_spend_this_month`, `sensor.amazon_orders_spend_this_year` (EUR)
+   - `sensor.amazon_orders_spend_this_month`, `sensor.amazon_orders_spend_this_year` (EUR, net of refunds)
    - `sensor.amazon_orders_sync_status` (idle/syncing/backfilling/cooldown/auth_required/error)
    - `sensor.amazon_orders_backfill_progress` (% or orders count)
    - `binary_sensor.amazon_orders_auth_required`

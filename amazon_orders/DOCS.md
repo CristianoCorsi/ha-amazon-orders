@@ -80,7 +80,7 @@ With MQTT, a device **Amazon Orders** is created:
 | `sensor.amazon_orders_next_return_deadline` | Nearest return deadline |
 | `sensor.amazon_orders_warranties_expiring_90d` | Warranties ending within 90 days |
 | `sensor.amazon_orders_next_warranty_deadline` | Nearest warranty deadline |
-| `sensor.amazon_orders_spend_this_month` / `_this_year` | Spending in EUR |
+| `sensor.amazon_orders_spend_this_month` / `_this_year` | Net spending in EUR: full order cost (including what you paid with Amazon balance) minus refunds |
 | `sensor.amazon_orders_sync_status` | idle, syncing, backfilling, cooldown, auth_required, error |
 | `sensor.amazon_orders_backfill_progress` | Backfill progress |
 | `binary_sensor.amazon_orders_auth_required` | On when you must sign in again |

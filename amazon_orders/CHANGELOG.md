@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.7
+
+- Orders paid with Amazon balance no longer show 0 €: the order cost now includes the balance used (Amazon's "Grand Total" only counts what was charged to the card).
+- Spending is shown net of refunds (overview, statistics, chart and spend sensors); the statistics card shows the breakdown. The order page shows the amount paid with balance and the refund.
+
 ## 0.1.6
 
 - If Amazon reports `DuplicateDeviceName`, sign-in retries once with a new device name; if Amazon still refuses, the login page and the panel ask you to remove old `Home Assistant Amazon Orders…` devices, with a direct link to Amazon's device list.

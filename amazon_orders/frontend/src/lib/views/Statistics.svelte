@@ -29,7 +29,9 @@
     )
   );
   const change = $derived(
-    previous?.spend ? ((summary?.spend ?? 0) / previous.spend - 1) * 100 : null
+    previous?.spend
+      ? ((summary?.net_spend ?? summary?.spend ?? 0) / (previous.net_spend ?? previous.spend) - 1) * 100
+      : null
   );
   const sellerMax = $derived(Math.max(...sellers.map((s) => s.spend), 1));
   const weekdayMax = $derived(Math.max(...weekday.map((w) => w.orders), 1));
@@ -87,8 +89,11 @@
 <DataState {busy} {error} {locale} retry={load}>
   <section class="metrics stats-metrics">
     <div class="metric primary-metric">
-      <span class="metric-label">{tr('Total spending', 'Spesa totale')}</span><strong
-        >{money(summary?.spend, locale)}</strong
+      <span class="metric-label">{tr('Net spending', 'Spesa netta')}</span><strong
+        >{money(summary?.net_spend ?? summary?.spend, locale)}</strong
+      ><span class="metric-breakdown"
+        >{tr('Orders', 'Ordini')} {money(summary?.spend, locale)} − {tr('refunds', 'rimborsi')}
+        {money(summary?.refunds, locale)}</span
       ><span
         >{#if change !== null}<Icon
             name={change < 0 ? 'decrease' : 'increase'}
@@ -246,7 +251,7 @@
       </div>
       <dl class="key-values">
         <div>
-          <dt>{tr('Gift cards used', 'Buoni regalo utilizzati')}</dt>
+          <dt>{tr('Paid with Amazon balance', 'Pagato con saldo Amazon')}</dt>
           <dd>{money(summary?.gift_card_used, locale)}</dd>
         </div>
         <div>

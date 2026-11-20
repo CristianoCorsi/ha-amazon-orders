@@ -49,7 +49,7 @@ def test_orders_filters(client):
     c = get(client, "/api/orders?status=cancelled&page_size=200").json()
     assert c["total"] > 0 and all(o["cancelled"] for o in c["orders"])
     m = get(client, "/api/orders?min=100&max=300&page_size=200").json()
-    assert m["total"] > 0 and all(100 <= o["grand_total"] <= 300 for o in m["orders"])
+    assert m["total"] > 0 and all(100 <= o["order_total"] <= 300 for o in m["orders"])
     s = get(client, "/api/orders?seller=amazon&page_size=200").json()
     assert 0 < s["total"] < all_["total"] + 1
     assert get(client, "/api/orders?status=returned").json()["total"] > 0

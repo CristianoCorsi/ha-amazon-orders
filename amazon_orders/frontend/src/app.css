@@ -2807,3 +2807,12 @@ progress::-moz-progress-bar {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+.metric-breakdown {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+.refund-amount {
+  color: var(--success);
+}

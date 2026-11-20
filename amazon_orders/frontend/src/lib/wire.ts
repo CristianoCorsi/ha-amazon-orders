@@ -95,7 +95,9 @@ export function normalizeOrder(raw: WireOrder | WireOrderDetail): Order {
   return {
     order_number: order.order_number ?? '',
     placed_date: order.placed_date ?? '',
+    order_total: order.order_total ?? order.grand_total ?? null,
     grand_total: order.grand_total ?? null,
+    paid_with_balance: order.paid_with_balance ?? null,
     shipping_total: order.shipping_total ?? null,
     refund_total: order.refund_total ?? null,
     cancelled: order.cancelled ?? false,

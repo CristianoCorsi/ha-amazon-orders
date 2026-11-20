@@ -14,10 +14,12 @@
     year: number;
     compact?: boolean;
   } = $props();
+  // Net of refunds, so the chart matches the spending totals.
+  const spendOf = (m: Monthly | undefined) => (m ? (m.net_spend ?? m.spend) : 0);
   const values = $derived(
     Array.from({ length: 12 }, (_, i) => ({
-      current: current.find((m) => Number(m.month.slice(5, 7)) === i + 1)?.spend ?? 0,
-      previous: previous.find((m) => Number(m.month.slice(5, 7)) === i + 1)?.spend ?? 0
+      current: spendOf(current.find((m) => Number(m.month.slice(5, 7)) === i + 1)),
+      previous: spendOf(previous.find((m) => Number(m.month.slice(5, 7)) === i + 1))
     }))
   );
   const max = $derived(Math.max(...values.flatMap((v) => [v.current, v.previous]), 100) * 1.12);

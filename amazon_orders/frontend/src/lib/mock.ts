@@ -135,7 +135,10 @@ const orders: Order[] = Array.from({ length: 96 }, (_, i) => {
   return {
     order_number: orderNumber,
     placed_date: placed,
-    grand_total: cancelled ? null : product[2] + (i % 9 === 2 ? 3.99 : 0),
+    order_total: cancelled ? null : product[2] + (i % 9 === 2 ? 3.99 : 0),
+    // Every 7th order is paid with Amazon balance: the card was charged 0.
+    grand_total: cancelled ? null : i % 7 === 3 ? 0 : product[2] + (i % 9 === 2 ? 3.99 : 0),
+    paid_with_balance: !cancelled && i % 7 === 3 ? product[2] + (i % 9 === 2 ? 3.99 : 0) : null,
     shipping_total: i % 9 === 2 ? 3.99 : 0,
     refund_total: state.status === 'returned' ? product[2] : 0,
     cancelled,
@@ -201,8 +204,8 @@ function filtered(filters: Filters): Order[] {
             (filters.status === 'cancelled'
               ? o.cancelled
               : !o.cancelled && item.item_state.status === filters.status)) &&
-          (!filters.min || (o.grand_total ?? 0) >= Number(filters.min)) &&
-          (!filters.max || (o.grand_total ?? 0) <= Number(filters.max))
+          (!filters.min || (o.order_total ?? 0) >= Number(filters.min)) &&
+          (!filters.max || (o.order_total ?? 0) <= Number(filters.max))
         );
       });
   result = [...result].sort((a, b) =>
@@ -220,11 +223,12 @@ function yearOrders(y: number) {
 function summary(y: number): Summary {
   const list = yearOrders(y);
   const active = list.filter((o) => !o.cancelled);
-  const spend = active.reduce((s, o) => s + (o.grand_total ?? 0), 0);
+  const spend = active.reduce((s, o) => s + (o.order_total ?? 0), 0);
   return {
     currency: 'EUR',
     year: y,
     spend,
+    net_spend: spend - active.reduce((s, o) => s + (o.refund_total ?? 0), 0),
     orders: active.length,
     items: active.length,
     avg_order: active.length ? spend / active.length : 0,
@@ -359,7 +363,8 @@ export async function mockRequest(path: string, options: RequestInit): Promise<u
         const list = yearOrders(yy).filter((o) => !o.cancelled && o.placed_date.startsWith(month));
         rows.push({
           month,
-          spend: list.reduce((s, o) => s + (o.grand_total ?? 0), 0),
+          spend: list.reduce((s, o) => s + (o.order_total ?? 0), 0),
+          net_spend: list.reduce((s, o) => s + (o.order_total ?? 0) - (o.refund_total ?? 0), 0),
           orders: list.length
         });
       }
@@ -380,7 +385,7 @@ export async function mockRequest(path: string, options: RequestInit): Promise<u
           const list = yearOrders(y).filter((o) => !o.cancelled && o.items[0].seller === seller);
           return {
             seller,
-            spend: list.reduce((s, o) => s + (o.grand_total ?? 0), 0),
+            spend: list.reduce((s, o) => s + (o.order_total ?? 0), 0),
             count: list.length
           };
         })
