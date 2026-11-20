@@ -70,7 +70,44 @@ CREATE VIRTUAL TABLE search_fts USING fts5(
 """
 
 # Each migration is an SQL script upgrading from version i to i+1 (applied in one transaction).
-MIGRATIONS: list[str] = [SCHEMA_V1]
+# v2: merge the duplicated item rows created by parsing a product both in its shipment and in order.items
+# (keys "<base>#0" = shipment copy, "<base>#1" = order copy, no "#2"). Annotations and fired events are kept.
+SCHEMA_V2 = """
+CREATE TEMP TABLE dup AS
+SELECT a.id AS keep_id, b.id AS drop_id FROM items a
+JOIN items b ON b.order_number = a.order_number
+ AND b.item_key = substr(a.item_key, 1, length(a.item_key) - 1) || '1'
+WHERE a.item_key LIKE '%#0'
+  AND NOT EXISTS (SELECT 1 FROM items c WHERE c.order_number = a.order_number
+                  AND c.item_key = substr(a.item_key, 1, length(a.item_key) - 1) || '2')
+  AND COALESCE(a.asin, '') = COALESCE(b.asin, '') AND a.title = b.title;
+
+UPDATE items SET
+  price = COALESCE(price, (SELECT b.price FROM items b JOIN dup d ON d.drop_id = b.id WHERE d.keep_id = items.id)),
+  quantity = COALESCE(quantity, (SELECT b.quantity FROM items b JOIN dup d ON d.drop_id = b.id
+                                 WHERE d.keep_id = items.id)),
+  seller = COALESCE(seller, (SELECT b.seller FROM items b JOIN dup d ON d.drop_id = b.id WHERE d.keep_id = items.id)),
+  image_link = COALESCE(image_link, (SELECT b.image_link FROM items b JOIN dup d ON d.drop_id = b.id
+                                     WHERE d.keep_id = items.id)),
+  link = COALESCE(link, (SELECT b.link FROM items b JOIN dup d ON d.drop_id = b.id WHERE d.keep_id = items.id)),
+  return_eligible_date = COALESCE(return_eligible_date, (SELECT b.return_eligible_date FROM items b
+                                  JOIN dup d ON d.drop_id = b.id WHERE d.keep_id = items.id)),
+  delivered_date = COALESCE(delivered_date, (SELECT b.delivered_date FROM items b JOIN dup d ON d.drop_id = b.id
+                                             WHERE d.keep_id = items.id))
+WHERE id IN (SELECT keep_id FROM dup);
+
+INSERT OR IGNORE INTO item_state(item_id, status, note, warranty_until_override, warranty_months_override, updated_at)
+SELECT d.keep_id, s.status, s.note, s.warranty_until_override, s.warranty_months_override, s.updated_at
+FROM item_state s JOIN dup d ON d.drop_id = s.item_id;
+UPDATE OR IGNORE fired_events SET item_id = (SELECT keep_id FROM dup WHERE drop_id = fired_events.item_id)
+WHERE item_id IN (SELECT drop_id FROM dup);
+DELETE FROM fired_events WHERE item_id IN (SELECT drop_id FROM dup);
+DELETE FROM search_fts WHERE item_id IN (SELECT drop_id FROM dup);
+DELETE FROM items WHERE id IN (SELECT drop_id FROM dup);
+DROP TABLE dup;
+"""
+
+MIGRATIONS: list[str] = [SCHEMA_V1, SCHEMA_V2]
 
 
 def connect(path: str | Path) -> sqlite3.Connection:

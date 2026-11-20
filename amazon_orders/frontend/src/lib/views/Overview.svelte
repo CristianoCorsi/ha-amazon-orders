@@ -79,7 +79,7 @@
     </div>
     <a class="metric metric-link" href="#/deadlines"
       ><span class="metric-label"
-        ><Icon name="return" size={20} />{tr('Open returns', 'Resi aperti')}</span
+        ><Icon name="return" size={20} />{tr('Still returnable', 'Ancora restituibili')}</span
       ><strong
         >{status?.counts.returns_open ?? deadlines.filter((d) => d.kind === 'return').length}<Icon
           name="arrow"
@@ -120,8 +120,8 @@
               <div>
                 <strong>{d.item.title}</strong><span
                   >{tr(
-                    d.kind === 'return' ? 'Return by' : 'Warranty until',
-                    d.kind === 'return' ? 'Reso entro il' : 'Garanzia fino al'
+                    d.kind === 'return' ? 'Start a return by' : 'Warranty until',
+                    d.kind === 'return' ? 'Avvia il reso entro il' : 'Garanzia fino al'
                   )}
                   {date(d.deadline, locale)}</span
                 >

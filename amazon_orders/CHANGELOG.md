@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.8
+
+- Fix every item appearing twice (and twice in the warranty deadlines): the library reports each product both in its shipment and in the order item list. They are now merged, and a database migration merges the existing duplicates, keeping your notes and statuses.
+- Clearer wording: the return deadline is the last day to *start* a return on Amazon.
+
 ## 0.1.7
 
 - Orders paid with Amazon balance no longer show 0 €: the order cost now includes the balance used (Amazon's "Grand Total" only counts what was charged to the card).

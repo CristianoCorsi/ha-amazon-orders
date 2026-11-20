@@ -208,6 +208,18 @@ def fingerprint(order: Any) -> str:
     return hashlib.sha1("\x1f".join(parts).encode()).hexdigest()[:16]
 
 
+def _merge_item(target: ItemRow, it: Any) -> None:
+    """Fill the fields the shipment copy of an item lacks from its ``order.items`` twin."""
+    if target.price is None:
+        target.price = _num(getattr(it, "price", None))
+    if target.quantity is None:
+        target.quantity = getattr(it, "quantity", None)
+    target.seller = target.seller or _seller_name(getattr(it, "seller", None))
+    target.image_link = target.image_link or getattr(it, "image_link", None)
+    target.link = target.link or getattr(it, "link", None)
+    target.return_eligible_date = target.return_eligible_date or _as_date(getattr(it, "return_eligible_date", None))
+
+
 def map_order(order: Any, detailed: bool, today: date | None = None) -> OrderRow:
     placed = _as_date(getattr(order, "order_placed_date", None))
     number = getattr(order, "order_number", None)
@@ -236,6 +248,9 @@ def map_order(order: Any, detailed: bool, today: date | None = None) -> OrderRow
 
     seen: set[int] = set()
     counts: dict[str, int] = {}
+    # amazon-orders parses the same product twice on detail pages: once inside its shipment (with the delivery
+    # date) and once in ``order.items`` (with price, seller and return date), as distinct objects. Merge them.
+    from_shipments: dict[str, list[ItemRow]] = {}
 
     def add_item(it: Any, ship_key: str | None, delivered: date | None) -> None:
         if id(it) in seen:
@@ -244,6 +259,9 @@ def map_order(order: Any, detailed: bool, today: date | None = None) -> OrderRow
         title = getattr(it, "title", None) or "(untitled)"
         asin = getattr(it, "asin", None)
         base = asin or title
+        if ship_key is None and from_shipments.get(base):
+            _merge_item(from_shipments[base].pop(0), it)
+            return
         n = counts.get(base, 0)
         counts[base] = n + 1
         row.items.append(
@@ -261,6 +279,8 @@ def map_order(order: Any, detailed: bool, today: date | None = None) -> OrderRow
                 shipment_key=ship_key,
             )
         )
+        if ship_key is not None:
+            from_shipments.setdefault(base, []).append(row.items[-1])
 
     for idx, sh in enumerate(getattr(order, "shipments", None) or []):
         key = getattr(sh, "shipment_id", None) or f"s{idx}"

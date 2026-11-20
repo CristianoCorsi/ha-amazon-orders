@@ -46,7 +46,7 @@
       class:active={kind === 'return'}
       aria-pressed={kind === 'return'}
       onclick={() => (kind = 'return')}
-      ><Icon name="return" size={19} />{tr('Returns', 'Resi')}</button
+      ><Icon name="return" size={19} />{tr('Return windows', 'Finestre di reso')}</button
     ><button
       class:active={kind === 'warranty'}
       aria-pressed={kind === 'warranty'}
